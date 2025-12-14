@@ -3,29 +3,34 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Scanner G6 - Cirineo</title>
+    <title>Scanner Lite G6 - Cirineo</title>
+    <meta name="description" content="Escáner ligero de producción optimizado para dispositivos Moto G6 Play.">
+
+    <link rel="icon" type="image/png" href="https://upload.wikimedia.org/wikipedia/commons/d/d1/Barcode_Scanner_icon.png">
+    <link rel="apple-touch-icon" href="https://upload.wikimedia.org/wikipedia/commons/d/d1/Barcode_Scanner_icon.png">
+    
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://cirineo-cec21.web.app/"> <meta property="og:title" content="Escáner de Producción Lite">
+    <meta property="og:description" content="Herramienta ligera para escaneo de papeletas en planta. Optimizado para bajo consumo.">
+    <meta property="og:image" content="https://upload.wikimedia.org/wikipedia/commons/d/d1/Barcode_Scanner_icon.png">
+
+    <meta property="twitter:card" content="summary_large_image">
+    <meta property="twitter:image" content="https://upload.wikimedia.org/wikipedia/commons/d/d1/Barcode_Scanner_icon.png">
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
-    
     <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
-
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
 
     <style>
-        body { background-color: #000; color: white; font-family: sans-serif; touch-action: manipulation; }
-        /* Forzar altura completa */
-        #root, .app-container { height: 100vh; display: flex; flex-direction: column; }
-        
-        /* Ajustes de Video para Moto G6 */
+        body { background-color: #000; color: white; font-family: sans-serif; touch-action: manipulation; overscroll-behavior: none; }
+        #root, .app-container { height: 100vh; height: 100dvh; display: flex; flex-direction: column; }
         #reader { width: 100%; flex-grow: 1; background: #000; position: relative; overflow: hidden; }
         #reader video { object-fit: cover; width: 100%; height: 100%; }
-        
-        /* Animación de escaneo exitoso */
         .flash { animation: flashAnim 0.3s ease-out; }
         @keyframes flashAnim { 0% { background-color: rgba(255,255,255,0.8); } 100% { background-color: transparent; } }
     </style>
@@ -36,7 +41,6 @@
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
-        // --- CONFIGURACIÓN FIREBASE ---
         const firebaseConfig = {
             apiKey: "AIzaSyBqHgV4vDat1-VmZfKbiPg7nuiX-ROcexw",
             authDomain: "cirineo-cec21.firebaseapp.com",
@@ -46,23 +50,20 @@
             appId: "1:620210618284:web:482bab9bf74650fff18409",
             measurementId: "G-B7YLM78RVW"
         };
-
         if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
         const db = firebase.firestore();
         const FieldValue = firebase.firestore.FieldValue;
 
-        // --- ICONO ---
-        const Icon = ({ name, size = 24, className }) => {
+        const Icon = ({ name, size = 24, className, onClick }) => {
             const ref = useRef(null);
             useEffect(() => {
                 if (ref.current && lucide.icons[name]) {
                     ref.current.innerHTML = lucide.icons[name].toSvg({ width: size, height: size, class: className });
                 }
             }, [name, className]);
-            return <span ref={ref} className="inline-flex items-center justify-center"></span>;
+            return <span ref={ref} onClick={onClick} className={`inline-flex items-center justify-center ${onClick ? 'cursor-pointer' : ''}`}></span>;
         };
 
-        // --- APP ---
         const ScannerG6 = () => {
             const [scans, setScans] = useState([]);
             const [ordersCache, setOrdersCache] = useState([]);
@@ -70,11 +71,36 @@
             const [statusMsg, setStatusMsg] = useState("Listo para iniciar");
             const [errorMsg, setErrorMsg] = useState("");
             const [isSaving, setIsSaving] = useState(false);
+            const [installPrompt, setInstallPrompt] = useState(null); // NUEVO: Estado para el prompt de instalación
             
-            const scannerRef = useRef(null); // Instancia del escáner HTML5
-            const beepRef = useRef(null); // Audio
+            const scannerRef = useRef(null);
 
-            // 1. Cargar datos (Solo una vez)
+            // --- NUEVO: Escuchar evento de instalación PWA ---
+            useEffect(() => {
+                const handler = (e) => {
+                    // Prevenir que Chrome muestre el mini-infobar automáticamente
+                    e.preventDefault();
+                    // Guardar el evento para activarlo luego con el botón
+                    setInstallPrompt(e);
+                    console.log("Evento de instalación capturado");
+                };
+                window.addEventListener('beforeinstallprompt', handler);
+                return () => window.removeEventListener('beforeinstallprompt', handler);
+            }, []);
+
+            // --- NUEVO: Función para disparar la instalación ---
+            const triggerInstall = async () => {
+                if (!installPrompt) return;
+                // Mostrar el diálogo nativo de instalación
+                installPrompt.prompt();
+                // Esperar a que el usuario decida
+                const { outcome } = await installPrompt.userChoice;
+                console.log(`User response to install prompt: ${outcome}`);
+                // Resetear el prompt (ya no se puede usar de nuevo)
+                setInstallPrompt(null);
+            };
+
+            // 1. Cargar datos
             useEffect(() => {
                 setStatusMsg("Cargando base de datos...");
                 const unsubscribe = db.collection('orders')
@@ -82,49 +108,31 @@
                     .onSnapshot(snapshot => {
                         const loadedOrders = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
                         setOrdersCache(loadedOrders);
-                        setStatusMsg(`Base de datos lista: ${loadedOrders.length} órdenes.`);
+                        setStatusMsg(`Base de datos lista: ${loadedOrders.length} órdenes activas.`);
                     }, err => {
                         setErrorMsg("Error cargando datos: " + err.message);
                     });
                 return () => unsubscribe();
             }, []);
 
-            // 2. Función para INICIAR CÁMARA (Manual para evitar bloqueos)
+            // 2. Iniciar Cámara (Optimizada Moto G6)
             const startCamera = () => {
                 setErrorMsg("");
-                setStatusMsg("Iniciando cámara...");
-
-                // Configuración específica para rendimiento en gama baja
-                const config = {
-                    fps: 5, // Bajamos FPS para no calentar el cel
-                    qrbox: { width: 250, height: 100 }, // Caja más ancha para código de barras
-                    aspectRatio: 1.0
-                };
-
-                // IMPORTANTE: Limitamos SOLO a CODE_128 (Barras normales) para velocidad extrema
-                const formats = { formatsToSupport: [ Html5QrcodeSupportedFormats.CODE_128 ] };
-
+                setStatusMsg("Iniciando cámara (Modo Lite)...");
+                const config = { fps: 5, qrbox: { width: 250, height: 100 }, aspectRatio: 1.0 };
                 const html5QrCode = new Html5Qrcode("reader");
                 scannerRef.current = html5QrCode;
-
                 html5QrCode.start(
                     { facingMode: "environment" }, 
                     config,
-                    (decodedText) => {
-                        handleScan(decodedText, html5QrCode);
-                    },
-                    (errorMessage) => {
-                        // Ignoramos errores de cuadro por cuadro para no saturar
-                    }
+                    (decodedText) => handleScan(decodedText, html5QrCode),
+                    () => {} // Ignorar errores de frame
                 ).then(() => {
                     setCameraActive(true);
-                    setStatusMsg("Cámara activa. Escanea etiquetas.");
+                    setStatusMsg("Escanea etiquetas de código de barras.");
                 }).catch(err => {
                     setCameraActive(false);
-                    setErrorMsg("Error de Cámara: " + err);
-                    if(window.location.protocol === 'file:') {
-                        alert("ERROR CRÍTICO: No puedes usar la cámara abriendo el archivo directo. Debes subirlo a un servidor (Firebase/Github) o usar localhost.");
-                    }
+                    setErrorMsg("Error Cámara: " + err + ". Asegúrate de usar HTTPS.");
                 });
             };
 
@@ -140,20 +148,13 @@
 
             const handleScan = (codeRaw, scannerInstance) => {
                 const code = codeRaw.trim().toUpperCase().replace(/'/g, '-').replace(/\?/g, '_');
-                
-                // Evitar re-escaneo inmediato del mismo código
                 setScans(prev => {
                     if (prev.includes(code)) return prev;
-                    
-                    // Efecto visual y sonoro
                     playBeep();
                     document.getElementById('scan-flash').classList.add('flash');
                     setTimeout(() => document.getElementById('scan-flash').classList.remove('flash'), 300);
-
                     return [code, ...prev];
                 });
-                
-                // Pausar brevemente para dar feedback visual
                 if(scannerInstance) {
                     scannerInstance.pause();
                     setTimeout(() => scannerInstance.resume(), 1200);
@@ -161,14 +162,12 @@
             };
 
             const playBeep = () => {
-                // Beep sintético simple sin cargar archivos externos
-                const ctx = new (window.AudioContext || window.webkitAudioContext)();
-                const osc = ctx.createOscillator();
-                osc.type = 'square';
-                osc.frequency.setValueAtTime(800, ctx.currentTime);
-                osc.connect(ctx.destination);
-                osc.start();
-                osc.stop(ctx.currentTime + 0.1);
+                try {
+                    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                    const osc = ctx.createOscillator();
+                    osc.type = 'square'; osc.frequency.setValueAtTime(800, ctx.currentTime);
+                    osc.connect(ctx.destination); osc.start(); osc.stop(ctx.currentTime + 0.1);
+                } catch(e) {}
             };
 
             const removeScan = (code) => {
@@ -178,25 +177,17 @@
             const confirmScans = async () => {
                 if (scans.length === 0 || isSaving) return;
                 setIsSaving(true);
-                stopCamera(); // Detener cámara para liberar memoria mientras guarda
-
-                let saved = 0, duplicates = 0, ignored = 0;
+                stopCamera(); 
+                let saved = 0, duplicates = 0, ignored = 0, ops = 0;
                 const batch = db.batch();
-                let ops = 0;
-
-                setStatusMsg("Verificando y guardando...");
+                setStatusMsg("Procesando y guardando en nube...");
 
                 const promises = scans.map(async (code) => {
                     const parts = code.split('-');
                     if (parts.length !== 3) { ignored++; return; }
-                    
                     const [model, partida, pkgIndexStr] = parts;
-                    
-                    // Buscar en cache (rápido)
                     const order = ordersCache.find(o => String(o.codigo) === model && String(o.partida) === partida);
                     if (!order) { ignored++; return; }
-
-                    // Checar duplicado en nube (lento pero seguro)
                     const dupCheck = await db.collection('registro_produccion').where('codigo_paquete', '==', code).get();
                     if (!dupCheck.empty) { duplicates++; return; }
 
@@ -208,57 +199,57 @@
                     const pzsInPkg = (pkgIndex < totalPkgs) ? pkgSize : (totalPzs % pkgSize || pkgSize);
 
                     batch.set(docRef, {
-                        codigo_paquete: code,
-                        orderId: String(order.id),
-                        fecha: FieldValue.serverTimestamp(),
-                        fecha_legible: new Date().toLocaleDateString('es-MX'),
-                        tejedor: "Moto G6",
-                        tipo: "produccion",
-                        modelo: order.codigo,
-                        partida: order.partida,
-                        paquete_indice: pkgIndex,
-                        piezas_en_paquete: pzsInPkg
+                        codigo_paquete: code, orderId: String(order.id), fecha: FieldValue.serverTimestamp(),
+                        fecha_legible: new Date().toLocaleDateString('es-MX', {day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}),
+                        tejedor: "Moto G6 Lite", tipo: "produccion", modelo: order.codigo, partida: order.partida,
+                        paquete_indice: pkgIndex, piezas_en_paquete: pzsInPkg
                     });
-                    ops++;
-                    saved++;
+                    ops++; saved++;
                 });
 
                 await Promise.all(promises);
                 if (ops > 0) await batch.commit();
-
-                setIsSaving(false);
-                setScans([]);
+                setIsSaving(false); setScans([]);
                 alert(`RESUMEN:\n✅ Guardados: ${saved}\n⚠️ Repetidos: ${duplicates}\n🚫 Ignorados: ${ignored}`);
                 setStatusMsg("Listo. Presiona 'Iniciar Cámara' para seguir.");
             };
 
             return (
                 <div className="app-container bg-slate-900 text-white relative">
-                    {/* Capa de Flash Visual */}
                     <div id="scan-flash" className="absolute inset-0 pointer-events-none z-50"></div>
 
-                    {/* HEADER */}
+                    {/* HEADER MODIFICADO CON BOTÓN DE INSTALAR */}
                     <div className="p-3 bg-slate-800 flex justify-between items-center shadow-md z-20">
-                        <div className="font-bold flex items-center gap-2">
-                            <Icon name="scan-barcode" className="text-yellow-400" />
-                            <span>MOTO G6 LITE</span>
+                        <div className="flex items-center gap-3">
+                            {/* NUEVO: Botón de instalación (solo visible si el navegador lo permite) */}
+                            {installPrompt && (
+                                <button 
+                                    onClick={triggerInstall} 
+                                    className="bg-blue-600 p-2 rounded-full animate-pulse shadow-lg hover:bg-blue-500 flex items-center justify-center" 
+                                    title="Instalar Aplicación"
+                                >
+                                    <Icon name="download" size={20} className="text-white" />
+                                </button>
+                            )}
+                            <div className="font-bold flex items-center gap-2">
+                                <Icon name="scan-barcode" className="text-yellow-400" />
+                                <span>MOTO G6 LITE</span>
+                            </div>
                         </div>
-                        <div className="text-xs text-slate-400">{ordersCache.length} O.A.</div>
+                        <div className="text-xs text-slate-400 font-mono">{ordersCache.length} O.A.</div>
                     </div>
 
-                    {/* ZONA DE ERROR / STATUS */}
                     {(errorMsg || statusMsg) && (
-                        <div className={`p-2 text-xs text-center font-mono ${errorMsg ? 'bg-red-900 text-white' : 'bg-slate-700 text-slate-300'}`}>
+                        <div className={`p-1 text-xs text-center font-mono truncate ${errorMsg ? 'bg-red-900 text-white' : 'bg-slate-700 text-slate-300'}`}>
                             {errorMsg || statusMsg}
                         </div>
                     )}
 
-                    {/* VISOR DE CÁMARA */}
                     <div className="relative flex-grow bg-black overflow-hidden flex flex-col justify-center">
                         {!cameraActive && (
-                            <div className="absolute inset-0 flex items-center justify-center z-10">
-                                <button onClick={startCamera} className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-4 rounded-full font-bold text-lg shadow-lg flex flex-col items-center gap-2 animate-bounce">
-                                    <Icon name="camera" size={32} />
+                            <div className="absolute inset-0 flex items-center justify-center z-10 bg-black/50">
+                                <button onClick={startCamera} className="bg-blue-600/90 hover:bg-blue-500 text-white px-6 py-4 rounded-xl font-bold text-lg shadow-xl flex flex-col items-center gap-2 backdrop-blur-sm border border-blue-400/30">
+                                    <Icon name="camera" size={36} />
                                     <span>INICIAR CÁMARA</span>
                                 </button>
                             </div>
@@ -266,39 +257,36 @@
                         <div id="reader"></div>
                     </div>
 
-                    {/* LISTA DE ESCANEOS (BUFFER) */}
                     <div className="h-1/3 bg-slate-900 flex flex-col border-t border-slate-700 z-20">
                         <div className="bg-slate-800 p-2 text-xs font-bold flex justify-between uppercase tracking-wider text-slate-400">
-                            <span>Pendientes ({scans.length})</span>
-                            <span onClick={() => setScans([])} className="text-red-400 cursor-pointer">Borrar Todo</span>
+                            <span>Buffer ({scans.length})</span>
+                            {scans.length > 0 && <span onClick={() => setScans([])} className="text-red-400 cursor-pointer">Limpiar</span>}
                         </div>
                         <div className="flex-grow overflow-y-auto p-2 space-y-2">
                             {scans.length === 0 ? (
-                                <div className="text-center text-slate-600 py-4 text-sm italic">
-                                    Presiona INICIAR CÁMARA<br/>y escanea los códigos de barras.
+                                <div className="text-center text-slate-600 py-4 text-sm italic flex flex-col items-center">
+                                    <Icon name="arrow-up-circle" size={24} className="mb-2 opacity-50"/>
+                                    Lista vacía. Inicia cámara.
                                 </div>
                             ) : (
                                 scans.map((code, i) => (
                                     <div key={i} className="flex justify-between items-center bg-slate-800 p-2 rounded border border-slate-700">
                                         <span className="font-mono font-bold text-lg text-yellow-500">{code}</span>
-                                        <button onClick={() => removeScan(code)} className="p-2 text-red-500 bg-slate-900 rounded-full">
-                                            <Icon name="x" size={18} />
-                                        </button>
+                                        <Icon name="x" size={24} className="text-red-500 p-1 bg-slate-900 rounded-full" onClick={() => removeScan(code)} />
                                     </div>
                                 ))
                             )}
                         </div>
                         
-                        {/* BOTÓN CONFIRMAR */}
                         <div className="p-3 bg-slate-800 border-t border-slate-700">
                             <button 
                                 onClick={confirmScans}
                                 disabled={scans.length === 0 || isSaving}
-                                className={`w-full py-3 rounded font-bold text-lg shadow-lg flex items-center justify-center gap-2
-                                    ${scans.length > 0 && !isSaving ? 'bg-green-600 text-white hover:bg-green-500' : 'bg-slate-700 text-slate-500'}
+                                className={`w-full py-3 rounded font-bold text-lg shadow-lg flex items-center justify-center gap-2 transition-all
+                                    ${scans.length > 0 && !isSaving ? 'bg-green-600 text-white hover:bg-green-500Active:scale-95' : 'bg-slate-700 text-slate-500'}
                                 `}
                             >
-                                {isSaving ? "PROCESANDO..." : `CONFIRMAR (${scans.length})`}
+                                {isSaving ? <><Icon name="loader-2" className="animate-spin"/> PROCESANDO...</> : <><Icon name="check-circle-2"/> CONFIRMAR ({scans.length})</>}
                             </button>
                         </div>
                     </div>
