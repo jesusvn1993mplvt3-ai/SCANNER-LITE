@@ -23,16 +23,42 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
 
     <style>
-        body { background-color: #000; color: white; font-family: sans-serif; touch-action: manipulation; overscroll-behavior: none; }
-        #root, .app-container { height: 100vh; height: 100dvh; display: flex; flex-direction: column; }
-        #reader { width: 100%; flex-grow: 1; background: #000; position: relative; overflow: hidden; }
-        #reader video { object-fit: cover; width: 100%; height: 100%; }
-        .flash { animation: flashAnim 0.3s ease-out; }
-        @keyframes flashAnim { 0% { background-color: rgba(255,255,255,0.8); } 100% { background-color: transparent; } }
+        body { background-color: #1e293b; color: #f1f5f9; font-family: system-ui, -apple-system, sans-serif; }
+        .camera-container { width: 100%; aspect-ratio: 1; max-height: 50vh; overflow: hidden; position: relative; }
+        #reader { width: 100%; height: 100%; }
+        #reader a { display: none !important; }
+        /* Estilo para el área de enfoque del QR */
+        .scan-region {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 70%;
+            height: 70%;
+            border: 2px solid rgba(255, 255, 255, 0.5);
+            pointer-events: none;
+            box-shadow: 0 0 0 1000px rgba(0, 0, 0, 0.4);
+            border-radius: 8px;
+            box-sizing: border-box;
+            opacity: 0.9;
+        }
+        .scan-region::before, .scan-region::after {
+            content: '';
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            border-color: #facc15;
+            border-style: solid;
+        }
+        .scan-region::before { top: -2px; left: -2px; border-width: 2px 0 0 2px; }
+        .scan-region::after { top: -2px; right: -2px; border-width: 2px 2px 0 0; }
+        .scan-region-bottom-left::before { bottom: -2px; left: -2px; border-width: 0 0 2px 2px; }
+        .scan-region-bottom-right::after { bottom: -2px; right: -2px; border-width: 0 2px 2px 0; }
     </style>
 </head>
 <body>
@@ -50,241 +76,240 @@
             appId: "1:620210618284:web:482bab9bf74650fff18409",
             measurementId: "G-B7YLM78RVW"
         };
+        
         if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
         const db = firebase.firestore();
-        const FieldValue = firebase.firestore.FieldValue;
+        const FieldValue = firebase.firestore.FieldValue; 
 
-        const Icon = ({ name, size = 24, className, onClick }) => {
-            const ref = useRef(null);
+        const Icon = ({ name, size = 18, className }) => {
+            const containerRef = useRef(null);
             useEffect(() => {
-                if (ref.current && lucide.icons[name]) {
-                    ref.current.innerHTML = lucide.icons[name].toSvg({ width: size, height: size, class: className });
+                if (containerRef.current && lucide.icons[name]) {
+                    containerRef.current.innerHTML = lucide.icons[name].toSvg({ width: size, height: size, class: className });
                 }
-            }, [name, className]);
-            return <span ref={ref} onClick={onClick} className={`inline-flex items-center justify-center ${onClick ? 'cursor-pointer' : ''}`}></span>;
+            }, [name, size, className]);
+            return <div ref={containerRef} className="inline-block" style={{ width: size, height: size }}></div>;
         };
 
         const ScannerG6 = () => {
-            const [scans, setScans] = useState([]);
-            const [ordersCache, setOrdersCache] = useState([]);
-            const [cameraActive, setCameraActive] = useState(false);
-            const [statusMsg, setStatusMsg] = useState("Listo para iniciar");
-            const [errorMsg, setErrorMsg] = useState("");
+            const [scans, setScans] = useState([]); // Array de códigos únicos escaneados
             const [isSaving, setIsSaving] = useState(false);
-            const [installPrompt, setInstallPrompt] = useState(null); // NUEVO: Estado para el prompt de instalación
-            
-            const scannerRef = useRef(null);
+            const [status, setStatus] = useState({ type: 'info', message: 'Iniciando cámara...' });
+            const [allOrders, setAllOrders] = useState([]); // Para buscar el código único
 
-            // --- NUEVO: Escuchar evento de instalación PWA ---
+            const html5QrcodeScannerRef = useRef(null);
+            const SCAN_INTERVAL_MS = 1500; // Pausa después de cada escaneo
+
+            // 1. Cargar todas las órdenes activas al iniciar
             useEffect(() => {
-                const handler = (e) => {
-                    // Prevenir que Chrome muestre el mini-infobar automáticamente
-                    e.preventDefault();
-                    // Guardar el evento para activarlo luego con el botón
-                    setInstallPrompt(e);
-                    console.log("Evento de instalación capturado");
-                };
-                window.addEventListener('beforeinstallprompt', handler);
-                return () => window.removeEventListener('beforeinstallprompt', handler);
-            }, []);
-
-            // --- NUEVO: Función para disparar la instalación ---
-            const triggerInstall = async () => {
-                if (!installPrompt) return;
-                // Mostrar el diálogo nativo de instalación
-                installPrompt.prompt();
-                // Esperar a que el usuario decida
-                const { outcome } = await installPrompt.userChoice;
-                console.log(`User response to install prompt: ${outcome}`);
-                // Resetear el prompt (ya no se puede usar de nuevo)
-                setInstallPrompt(null);
-            };
-
-            // 1. Cargar datos
-            useEffect(() => {
-                setStatusMsg("Cargando base de datos...");
-                const unsubscribe = db.collection('orders')
-                    .where('status', '!=', 'ARCHIVADO')
-                    .onSnapshot(snapshot => {
-                        const loadedOrders = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
-                        setOrdersCache(loadedOrders);
-                        setStatusMsg(`Base de datos lista: ${loadedOrders.length} órdenes activas.`);
-                    }, err => {
-                        setErrorMsg("Error cargando datos: " + err.message);
-                    });
+                const unsubscribe = db.collection('orders').where('status', '!=', 'ARCHIVADO').onSnapshot(snapshot => {
+                    const fetchedOrders = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+                    setAllOrders(fetchedOrders);
+                }, (error) => {
+                    setStatus({ type: 'error', message: 'Error cargando órdenes.' });
+                });
                 return () => unsubscribe();
             }, []);
 
-            // 2. Iniciar Cámara (Optimizada Moto G6)
-            const startCamera = () => {
-                setErrorMsg("");
-                setStatusMsg("Iniciando cámara (Modo Lite)...");
-                const config = { fps: 5, qrbox: { width: 250, height: 100 }, aspectRatio: 1.0 };
-                const html5QrCode = new Html5Qrcode("reader");
-                scannerRef.current = html5QrCode;
-                html5QrCode.start(
-                    { facingMode: "environment" }, 
-                    config,
-                    (decodedText) => handleScan(decodedText, html5QrCode),
-                    () => {} // Ignorar errores de frame
-                ).then(() => {
-                    setCameraActive(true);
-                    setStatusMsg("Escanea etiquetas de código de barras.");
-                }).catch(err => {
-                    setCameraActive(false);
-                    setErrorMsg("Error Cámara: " + err + ". Asegúrate de usar HTTPS.");
-                });
-            };
-
-            const stopCamera = () => {
-                if (scannerRef.current) {
-                    scannerRef.current.stop().then(() => {
-                        scannerRef.current.clear();
-                        setCameraActive(false);
-                        setStatusMsg("Cámara detenida.");
-                    }).catch(err => console.error(err));
+            // 2. Inicializar y controlar el scanner
+            useEffect(() => {
+                if (html5QrcodeScannerRef.current) {
+                    html5QrcodeScannerRef.current.clear().catch(err => console.error("Error clearing scanner on remount", err));
                 }
-            };
+                
+                const onScanSuccess = (decodedText) => {
+                    handleScanResult(decodedText);
+                    if (html5QrcodeScannerRef.current) {
+                        html5QrcodeScannerRef.current.pause(); 
+                        setTimeout(() => {
+                            if (html5QrcodeScannerRef.current) html5QrcodeScannerRef.current.resume();
+                        }, SCAN_INTERVAL_MS); 
+                    }
+                };
 
-            const handleScan = (codeRaw, scannerInstance) => {
-                const code = codeRaw.trim().toUpperCase().replace(/'/g, '-').replace(/\?/g, '_');
-                setScans(prev => {
-                    if (prev.includes(code)) return prev;
-                    playBeep();
-                    document.getElementById('scan-flash').classList.add('flash');
-                    setTimeout(() => document.getElementById('scan-flash').classList.remove('flash'), 300);
-                    return [code, ...prev];
+                // Configuración optimizada para Lite G6 (o baja potencia)
+                const html5QrcodeScanner = new Html5QrcodeScanner(
+                    "reader", 
+                    { 
+                        fps: 10, // Bajamos FPS
+                        qrbox: { width: 220, height: 180 }, // Reducimos el área de detección
+                        aspectRatio: 1.0, 
+                        videoConstraints: { facingMode: "environment" } 
+                    },
+                    false 
+                );
+
+                html5QrcodeScanner.render(onScanSuccess, (errorMessage) => {
+                    // console.log("Camera error or scan fail: ", errorMessage);
+                    if (status.message === 'Iniciando cámara...') {
+                        setStatus({ type: 'info', message: 'Cámara lista. Escanea una papeleta.' });
+                    }
                 });
-                if(scannerInstance) {
-                    scannerInstance.pause();
-                    setTimeout(() => scannerInstance.resume(), 1200);
+
+                html5QrcodeScannerRef.current = html5QrcodeScanner;
+
+                return () => {
+                    if (html5QrcodeScannerRef.current) {
+                        html5QrcodeScannerRef.current.clear().catch(err => console.error("Error clearing scanner on unmount", err));
+                    }
+                };
+            }, []);
+
+            // 3. Manejo del escaneo: Busca el código único
+            const handleScanResult = (rawCode) => {
+                if (!rawCode) return;
+                const scannedCode = rawCode.trim();
+
+                if (scans.includes(scannedCode)) {
+                    setStatus({ type: 'warning', message: `Código ${scannedCode} ya en la lista.` });
+                    return;
                 }
+                
+                // BUSQUEDA INTELIGENTE: Verificar que el código exista en alguna orden activa
+                let foundPackage = null;
+                for (const order of allOrders) {
+                    if (order.progreso) {
+                        const pkg = order.progreso.find(p => p.codigoUnico === scannedCode);
+                        if (pkg) {
+                            // Almacenamos el código, la orden ID y el índice para la confirmación
+                            foundPackage = { 
+                                code: scannedCode, 
+                                orderId: order.id, 
+                                modelo: order.codigo, 
+                                partida: order.partida,
+                                piezaNombre: pkg.piezaNombre,
+                                paquete_indice: pkg.paqueteNum, 
+                                paquete_total: pkg.paquetesDePieza, 
+                                piezas_en_paquete: pkg.cantidad,
+                                tejedor: "Operario Móvil" // Nombre del tejedor por defecto para el móvil
+                            };
+                            break;
+                        }
+                    }
+                }
+
+                if (!foundPackage) {
+                    setStatus({ type: 'error', message: `Código ${scannedCode} NO válido o no existe en órdenes activas.` });
+                    return;
+                }
+
+                // Agregamos el objeto con todos los metadatos necesarios para el guardado
+                setScans(prev => [...prev, foundPackage]);
+                setStatus({ type: 'success', message: `¡Leído! Paquete ${foundPackage.paquete_indice} de ${foundPackage.modelo}` });
             };
 
-            const playBeep = () => {
-                try {
-                    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-                    const osc = ctx.createOscillator();
-                    osc.type = 'square'; osc.frequency.setValueAtTime(800, ctx.currentTime);
-                    osc.connect(ctx.destination); osc.start(); osc.stop(ctx.currentTime + 0.1);
-                } catch(e) {}
-            };
 
-            const removeScan = (code) => {
-                setScans(prev => prev.filter(c => c !== code));
-            };
-
+            // 4. Confirmación y guardado
             const confirmScans = async () => {
                 if (scans.length === 0 || isSaving) return;
                 setIsSaving(true);
-                stopCamera(); 
-                let saved = 0, duplicates = 0, ignored = 0, ops = 0;
-                const batch = db.batch();
-                setStatusMsg("Procesando y guardando en nube...");
+                setStatus({ type: 'info', message: `Guardando ${scans.length} registros...` });
 
-                const promises = scans.map(async (code) => {
-                    const parts = code.split('-');
-                    if (parts.length !== 3) { ignored++; return; }
-                    const [model, partida, pkgIndexStr] = parts;
-                    const order = ordersCache.find(o => String(o.codigo) === model && String(o.partida) === partida);
-                    if (!order) { ignored++; return; }
-                    const dupCheck = await db.collection('registro_produccion').where('codigo_paquete', '==', code).get();
-                    if (!dupCheck.empty) { duplicates++; return; }
+                const successfulScans = [];
+                const failedScans = [];
 
-                    const docRef = db.collection('registro_produccion').doc();
-                    const pkgIndex = parseInt(pkgIndexStr);
-                    const pkgSize = parseInt(order.packageSize) || 50;
-                    const totalPzs = order.totalPedido || 0;
-                    const totalPkgs = Math.ceil(totalPzs / pkgSize);
-                    const pzsInPkg = (pkgIndex < totalPkgs) ? pkgSize : (totalPzs % pkgSize || pkgSize);
+                for (const scan of scans) {
+                    try {
+                        // Verificar duplicados globales antes de guardar (seguridad)
+                        const globalScanCheck = await db.collection('registro_produccion').where('codigo_paquete', '==', scan.code).get();
+                        if (!globalScanCheck.empty) {
+                            failedScans.push(`${scan.code} (Ya existe)`);
+                            continue;
+                        }
 
-                    batch.set(docRef, {
-                        codigo_paquete: code, orderId: String(order.id), fecha: FieldValue.serverTimestamp(),
-                        fecha_legible: new Date().toLocaleDateString('es-MX', {day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}),
-                        tejedor: "Moto G6 Lite", tipo: "produccion", modelo: order.codigo, partida: order.partida,
-                        paquete_indice: pkgIndex, piezas_en_paquete: pzsInPkg
-                    });
-                    ops++; saved++;
-                });
+                        // Guardamos el registro con todos los metadatos obtenidos al escanear
+                        await db.collection('registro_produccion').doc().set({
+                            codigo_paquete: scan.code, 
+                            orderId: String(scan.orderId), 
+                            fecha: FieldValue.serverTimestamp(),
+                            fecha_legible: new Date().toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }).replace(/\//g, '/'), 
+                            tejedor: scan.tejedor, 
+                            tipo: "produccion",
+                            modelo: scan.modelo,
+                            partida: scan.partida,
+                            paquete_indice: scan.paquete_indice, 
+                            paquete_total: scan.paquete_total,
+                            piezas_en_paquete: scan.piezas_en_paquete
+                        });
+                        
+                        successfulScans.push(scan.code);
 
-                await Promise.all(promises);
-                if (ops > 0) await batch.commit();
-                setIsSaving(false); setScans([]);
-                alert(`RESUMEN:\n✅ Guardados: ${saved}\n⚠️ Repetidos: ${duplicates}\n🚫 Ignorados: ${ignored}`);
-                setStatusMsg("Listo. Presiona 'Iniciar Cámara' para seguir.");
+                    } catch (error) {
+                        console.error("Error saving scan:", error);
+                        failedScans.push(`${scan.code} (Error DB)`);
+                    }
+                }
+
+                setIsSaving(false);
+                setScans(prev => prev.filter(s => !successfulScans.includes(s.code))); // Eliminar los exitosos
+
+                if (successfulScans.length > 0) {
+                    setStatus({ type: 'success', message: `Guardados ${successfulScans.length}. Pendientes: ${scans.length - successfulScans.length}.` });
+                } else if (failedScans.length > 0) {
+                     setStatus({ type: 'error', message: `Fallo al guardar. Revisa los códigos.` });
+                } else {
+                    setStatus({ type: 'info', message: `Lista vacía.` });
+                }
             };
 
+            const removeScan = (codeToRemove) => {
+                setScans(prev => prev.filter(s => s.code !== codeToRemove));
+                setStatus({ type: 'info', message: `Código ${codeToRemove} eliminado de la lista.` });
+            };
+            
+            const statusClass = status.type === 'info' ? 'bg-blue-600' : (status.type === 'success' ? 'bg-green-600' : (status.type === 'warning' ? 'bg-yellow-600' : 'bg-red-600'));
+
+
             return (
-                <div className="app-container bg-slate-900 text-white relative">
-                    <div id="scan-flash" className="absolute inset-0 pointer-events-none z-50"></div>
-
-                    {/* HEADER MODIFICADO CON BOTÓN DE INSTALAR */}
-                    <div className="p-3 bg-slate-800 flex justify-between items-center shadow-md z-20">
-                        <div className="flex items-center gap-3">
-                            {/* NUEVO: Botón de instalación (solo visible si el navegador lo permite) */}
-                            {installPrompt && (
-                                <button 
-                                    onClick={triggerInstall} 
-                                    className="bg-blue-600 p-2 rounded-full animate-pulse shadow-lg hover:bg-blue-500 flex items-center justify-center" 
-                                    title="Instalar Aplicación"
-                                >
-                                    <Icon name="download" size={20} className="text-white" />
-                                </button>
-                            )}
-                            <div className="font-bold flex items-center gap-2">
-                                <Icon name="scan-barcode" className="text-yellow-400" />
-                                <span>MOTO G6 LITE</span>
-                            </div>
+                <div className="flex flex-col h-screen max-h-screen">
+                    <header className="p-3 bg-slate-900 shadow-lg flex justify-between items-center shrink-0">
+                        <div className="flex items-center gap-2">
+                            <Icon name="scan" size={24} className="text-yellow-400"/>
+                            <h1 className="text-lg font-bold">Scanner Lite</h1>
                         </div>
-                        <div className="text-xs text-slate-400 font-mono">{ordersCache.length} O.A.</div>
-                    </div>
-
-                    {(errorMsg || statusMsg) && (
-                        <div className={`p-1 text-xs text-center font-mono truncate ${errorMsg ? 'bg-red-900 text-white' : 'bg-slate-700 text-slate-300'}`}>
-                            {errorMsg || statusMsg}
-                        </div>
-                    )}
-
-                    <div className="relative flex-grow bg-black overflow-hidden flex flex-col justify-center">
-                        {!cameraActive && (
-                            <div className="absolute inset-0 flex items-center justify-center z-10 bg-black/50">
-                                <button onClick={startCamera} className="bg-blue-600/90 hover:bg-blue-500 text-white px-6 py-4 rounded-xl font-bold text-lg shadow-xl flex flex-col items-center gap-2 backdrop-blur-sm border border-blue-400/30">
-                                    <Icon name="camera" size={36} />
-                                    <span>INICIAR CÁMARA</span>
-                                </button>
-                            </div>
-                        )}
+                        <div className={`text-xs font-bold px-3 py-1 rounded-full ${statusClass} transition-all duration-300`}>{status.message.toUpperCase()}</div>
+                    </header>
+                    
+                    <div className="camera-container shrink-0">
                         <div id="reader"></div>
+                        <div className="scan-region">
+                            <div className="scan-region-bottom-left"></div>
+                            <div className="scan-region-bottom-right"></div>
+                        </div>
                     </div>
 
-                    <div className="h-1/3 bg-slate-900 flex flex-col border-t border-slate-700 z-20">
-                        <div className="bg-slate-800 p-2 text-xs font-bold flex justify-between uppercase tracking-wider text-slate-400">
-                            <span>Buffer ({scans.length})</span>
-                            {scans.length > 0 && <span onClick={() => setScans([])} className="text-red-400 cursor-pointer">Limpiar</span>}
+                    <div className="flex flex-col flex-grow bg-slate-800">
+                        <div className="p-3 border-b border-slate-700 flex justify-between items-center shrink-0">
+                            <h2 className="text-sm font-bold text-slate-300">LISTA DE ESCANEOS PENDIENTES</h2>
+                            <span className="text-xl font-black text-yellow-400">{scans.length}</span>
                         </div>
-                        <div className="flex-grow overflow-y-auto p-2 space-y-2">
+                        
+                        <div className="flex-grow overflow-y-auto p-3 space-y-2">
                             {scans.length === 0 ? (
-                                <div className="text-center text-slate-600 py-4 text-sm italic flex flex-col items-center">
-                                    <Icon name="arrow-up-circle" size={24} className="mb-2 opacity-50"/>
-                                    Lista vacía. Inicia cámara.
-                                </div>
+                                <div className="text-center text-slate-500 py-10 font-bold text-sm">Escanea tu primer código.</div>
                             ) : (
-                                scans.map((code, i) => (
-                                    <div key={i} className="flex justify-between items-center bg-slate-800 p-2 rounded border border-slate-700">
-                                        <span className="font-mono font-bold text-lg text-yellow-500">{code}</span>
-                                        <Icon name="x" size={24} className="text-red-500 p-1 bg-slate-900 rounded-full" onClick={() => removeScan(code)} />
+                                scans.map(scan => (
+                                    <div key={scan.code} className="bg-slate-900 p-3 rounded-lg shadow-md flex justify-between items-center border-l-4 border-yellow-500">
+                                        <div>
+                                            <span className="font-mono font-bold text-lg text-white block">{scan.code}</span>
+                                            <span className="text-xs text-slate-400">{scan.modelo} / PQT: {scan.paquete_indice}/{scan.paquete_total}</span>
+                                        </div>
+                                        <Icon 
+                                            name="x" 
+                                            size={24} 
+                                            className="text-red-500 p-1 bg-slate-700 rounded-full cursor-pointer hover:bg-red-500 hover:text-white transition" 
+                                            onClick={() => removeScan(scan.code)} 
+                                        />
                                     </div>
                                 ))
                             )}
                         </div>
                         
-                        <div className="p-3 bg-slate-800 border-t border-slate-700">
+                        <div className="p-3 bg-slate-900 border-t border-slate-700 shrink-0">
                             <button 
                                 onClick={confirmScans}
                                 disabled={scans.length === 0 || isSaving}
-                                className={`w-full py-3 rounded font-bold text-lg shadow-lg flex items-center justify-center gap-2 transition-all
-                                    ${scans.length > 0 && !isSaving ? 'bg-green-600 text-white hover:bg-green-500Active:scale-95' : 'bg-slate-700 text-slate-500'}
-                                `}
+                                className={`w-full py-3 rounded font-bold text-lg shadow-lg flex items-center justify-center gap-2 transition-all\n                                    ${scans.length > 0 && !isSaving ? 'bg-green-600 text-white hover:bg-green-500 active:scale-[0.98]' : 'bg-slate-700 text-slate-500'}\n                                `}
                             >
                                 {isSaving ? <><Icon name="loader-2" className="animate-spin"/> PROCESANDO...</> : <><Icon name="check-circle-2"/> CONFIRMAR ({scans.length})</>}
                             </button>
