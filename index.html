@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Escáner Lite - Cirineo</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+
+    <style>
+        body { background-color: #0f172a; color: white; font-family: sans-serif; touch-action: manipulation; }
+        /* Ajustes para el escáner en pantallas pequeñas */
+        #reader { width: 100%; border: none !important; background: black; }
+        #reader video { object-fit: cover; border-radius: 8px; }
+        /* Ocultar elementos innecesarios de la librería del escáner */
+        #reader__dashboard_section_csr span, #reader__dashboard_section_swaplink { display: none !important; }
+        
+        .scan-item { animation: slideIn 0.2s ease-out; }
+        @keyframes slideIn { from { transform: translateX(-10px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // --- CONFIGURACIÓN FIREBASE (IDÉNTICA AL ORIGINAL) ---
+        const firebaseConfig = {
+            apiKey: "AIzaSyBqHgV4vDat1-VmZfKbiPg7nuiX-ROcexw",
+            authDomain: "cirineo-cec21.firebaseapp.com",
+            projectId: "cirineo-cec21",
+            storageBucket: "cirineo-cec21.firebasestorage.app",
+            messagingSenderId: "620210618284",
+            appId: "1:620210618284:web:482bab9bf74650fff18409",
+            measurementId: "G-B7YLM78RVW"
+        };
+
+        if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+        const FieldValue = firebase.firestore.FieldValue;
+
+        // --- COMPONENTE ICONO ---
+        const Icon = ({ name, size = 20, color="white" }) => {
+            const ref = useRef(null);
+            useEffect(() => {
+                if (ref.current && lucide.icons[name]) {
+                    ref.current.innerHTML = lucide.icons[name].toSvg({ width: size, height: size, stroke: color });
+                }
+            }, [name]);
+            return <span ref={ref} className="flex items-center justify-center"></span>;
+        };
+
+        // --- APP PRINCIPAL ---
+        const ScannerLite = () => {
+            const [scans, setScans] = useState([]); // Lista temporal
+            const [ordersCache, setOrdersCache] = useState([]); // Cache de órdenes activas
+            const [isSaving, setIsSaving] = useState(false);
+            const [ready, setReady] = useState(false);
+            const scannerRef = useRef(null);
+
+            // 1. Cargar Órdenes Activas al iniciar (para validación rápida)
+            useEffect(() => {
+                const unsubscribe = db.collection('orders')
+                    .where('status', '!=', 'ARCHIVADO')
+                    .onSnapshot(snapshot => {
+                        const loadedOrders = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+                        setOrdersCache(loadedOrders);
+                        setReady(true);
+                    });
+                return () => unsubscribe();
+            }, []);
+
+            // 2. Iniciar Escáner
+            useEffect(() => {
+                const startScanner = () => {
+                    if (scannerRef.current) return;
+                    
+                    const html5QrcodeScanner = new Html5QrcodeScanner(
+                        "reader", 
+                        { 
+                            fps: 10, 
+                            qrbox: { width: 250, height: 150 },
+                            aspectRatio: 1.0,
+                            videoConstraints: { facingMode: "environment" } // Cámara trasera
+                        },
+                        false
+                    );
+
+                    html5QrcodeScanner.render((decodedText) => {
+                        handleScan(decodedText);
+                        // Breve pausa para no escanear el mismo código 100 veces por segundo
+                        html5QrcodeScanner.pause();
+                        setTimeout(() => html5QrcodeScanner.resume(), 1000);
+                    }, (error) => { /* Ignorar errores de lectura */ });
+
+                    scannerRef.current = html5QrcodeScanner;
+                };
+
+                // Pequeño delay para asegurar que el DOM esté listo
+                setTimeout(startScanner, 500);
+
+                return () => {
+                    if (scannerRef.current) {
+                        try { scannerRef.current.clear(); } catch(e){}
+                    }
+                };
+            }, []);
+
+            // 3. Manejar lectura de código
+            const handleScan = (rawCode) => {
+                const code = rawCode.trim().toUpperCase().replace(/'/g, '-').replace(/\?/g, '_');
+                
+                setScans(prev => {
+                    if (prev.includes(code)) return prev; // Ya está en la lista temporal, ignorar
+                    // Sonido simple de confirmación (beep)
+                    try { new Audio('data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YU').play().catch(()=>{}); } catch(e){}
+                    return [code, ...prev]; // Agregar al principio
+                });
+            };
+
+            const removeScan = (codeToRemove) => {
+                setScans(prev => prev.filter(c => c !== codeToRemove));
+            };
+
+            // 4. Procesar y Guardar (Lógica Núcleo)
+            const handleConfirm = async () => {
+                if (scans.length === 0 || isSaving) return;
+                setIsSaving(true);
+
+                let savedCount = 0;
+                let duplicateCount = 0;
+                let ignoredCount = 0;
+
+                const batch = db.batch(); // Usamos batch para eficiencia
+                let batchOps = 0;
+                const tejedoraName = "Dispositivo Móvil";
+
+                // Necesitamos verificar duplicados en DB. Esto es asíncrono.
+                // Para ser eficientes, procesamos todo en un Promise.all
+                const processingPromises = scans.map(async (code) => {
+                    // A. Validación de Formato
+                    const parts = code.split('-');
+                    if (parts.length !== 3) {
+                        ignoredCount++;
+                        return;
+                    }
+
+                    const [model, partida, pkgIndex] = parts;
+
+                    // B. Validación contra Órdenes Activas (Local)
+                    const order = ordersCache.find(o => 
+                        String(o.codigo).toUpperCase() === model && 
+                        String(o.partida).toUpperCase() === partida
+                    );
+
+                    if (!order) {
+                        ignoredCount++; // No existe la orden, ignorar silenciosamente
+                        return;
+                    }
+
+                    // C. Validación de Duplicado en DB (Remoto)
+                    const existingDoc = await db.collection('registro_produccion')
+                        .where('codigo_paquete', '==', code)
+                        .limit(1)
+                        .get();
+
+                    if (!existingDoc.empty) {
+                        duplicateCount++; // Ya fue escaneado antes
+                        return;
+                    }
+
+                    // D. Preparar datos para guardar
+                    const docRef = db.collection('registro_produccion').doc();
+                    
+                    // Cálculos de paquete
+                    const totalPieces = order.totalPedido || 0;
+                    const packageSize = Number(order.packageSize) || 50;
+                    const totalPackages = Math.ceil(totalPieces / packageSize) || 1;
+                    const index = Number(pkgIndex);
+                    const piecesInThis = (index < totalPackages) ? packageSize : (totalPieces % packageSize || packageSize);
+
+                    batch.set(docRef, {
+                        codigo_paquete: code,
+                        orderId: String(order.id),
+                        fecha: FieldValue.serverTimestamp(),
+                        fecha_legible: new Date().toLocaleDateString('es-MX', {
+                            day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
+                        }).replace(/\//g, '/'),
+                        tejedor: tejedoraName,
+                        tipo: "produccion",
+                        modelo: order.codigo,
+                        partida: order.partida,
+                        paquete_indice: index,
+                        paquete_total: totalPackages,
+                        piezas_en_paquete: piecesInThis
+                    });
+                    batchOps++;
+                    savedCount++;
+                });
+
+                await Promise.all(processingPromises);
+
+                if (batchOps > 0) {
+                    await batch.commit();
+                }
+
+                setIsSaving(false);
+                setScans([]); // Limpiar lista
+                
+                // 5. Generar Aviso
+                alert(`PROCESO FINALIZADO:\n\n✅ Guardados con éxito: ${savedCount}\n⚠️ Duplicados (descartados): ${duplicateCount}\n🚫 Ignorados (no existen/error): ${ignoredCount}`);
+            };
+
+            return (
+                <div className="flex flex-col h-[100dvh] bg-slate-900">
+                    {/* Header Compacto */}
+                    <div className="bg-slate-800 p-3 flex justify-between items-center border-b border-slate-700 shadow-lg z-10">
+                        <div className="flex items-center gap-2">
+                            <Icon name="qr-code" size={24} color="#fbbf24" />
+                            <h1 className="font-bold text-lg text-slate-100">SCANNER LITE</h1>
+                        </div>
+                        <div className={`w-3 h-3 rounded-full ${ready ? 'bg-green-500' : 'bg-red-500 animate-pulse'}`}></div>
+                    </div>
+
+                    {/* Área de Escáner */}
+                    <div className="bg-black relative shrink-0">
+                         <div id="reader" className="w-full h-64 bg-black"></div>
+                         {!ready && <div className="absolute inset-0 flex items-center justify-center text-xs text-slate-400">Cargando datos...</div>}
+                    </div>
+
+                    {/* Lista de Códigos (Buffer) */}
+                    <div className="flex-grow flex flex-col bg-slate-900 overflow-hidden">
+                        <div className="p-2 bg-slate-800 text-xs font-bold text-slate-400 uppercase tracking-wider flex justify-between">
+                            <span>Pendientes de Confirmar</span>
+                            <span>{scans.length}</span>
+                        </div>
+                        
+                        <div className="flex-grow overflow-y-auto p-2 space-y-2">
+                            {scans.length === 0 ? (
+                                <div className="h-full flex flex-col items-center justify-center text-slate-600">
+                                    <Icon name="scan-line" size={40} color="#475569" />
+                                    <p className="mt-2 text-sm">Escanea paquetes para comenzar</p>
+                                </div>
+                            ) : (
+                                scans.map((code, index) => (
+                                    <div key={`${code}-${index}`} className="scan-item bg-slate-700 p-3 rounded-lg flex justify-between items-center shadow-md border border-slate-600">
+                                        <span className="font-mono text-lg font-bold text-white tracking-wide">{code}</span>
+                                        <button 
+                                            onClick={() => removeScan(code)}
+                                            className="bg-red-500/20 hover:bg-red-500 text-red-400 hover:text-white p-2 rounded-full transition-colors"
+                                        >
+                                            <Icon name="x" size={20} color="currentColor" />
+                                        </button>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Footer de Acción */}
+                    <div className="p-4 bg-slate-800 border-t border-slate-700 shrink-0 safe-area-pb">
+                        <button 
+                            onClick={handleConfirm}
+                            disabled={scans.length === 0 || isSaving || !ready}
+                            className={`w-full py-4 rounded-xl font-bold text-xl shadow-xl flex items-center justify-center gap-3 transition-all transform active:scale-95
+                                ${scans.length === 0 ? 'bg-slate-600 text-slate-400 cursor-not-allowed' : 'bg-green-600 text-white hover:bg-green-500'}
+                            `}
+                        >
+                            {isSaving ? (
+                                <span>Procesando...</span>
+                            ) : (
+                                <>
+                                    <Icon name="check-circle-2" size={24} color="white" />
+                                    <span>CONFIRMAR ({scans.length})</span>
+                                </>
+                            )}
+                        </button>
+                    </div>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<ScannerLite />);
+    </script>
+</body>
+</html>
