@@ -23,8 +23,17 @@
         #root, .app-container { height: 100vh; height: 100dvh; display: flex; flex-direction: column; }
         .flash { animation: flashAnim 0.3s ease-out; }
         @keyframes flashAnim { 0% { background-color: rgba(255,255,255,0.8); } 100% { background-color: transparent; } }
-        /* Estilos para el modal del escáner */
-        .camera-container-modal { width: 100%; aspect-ratio: 1; max-height: 50vh; overflow: hidden; position: relative; background: black; }
+        
+        /* Estilos para el modal del escáner - MODIFICACIÓN AQUÍ */
+        .camera-container-modal { 
+            width: 100%; 
+            /* Reducimos la altura máxima de 50vh a 35vh para dejar más espacio al buffer */
+            max-height: 35vh; 
+            overflow: hidden; 
+            position: relative; 
+            background: black; 
+            flex-shrink: 0; /* Asegura que no se haga más pequeña que su contenido mínimo */
+        }
         #reader-modal { width: 100%; height: 100%; }
         #reader-modal a { display: none !important; }
     </style>
@@ -222,6 +231,7 @@
                         <button onClick={onClose} className="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded text-sm font-bold flex items-center gap-1"><Icon name="x" size={16}/> CERRAR</button>
                     </div>
 
+                    {/* La altura de este contenedor fue ajustada en el CSS a max-height: 35vh */}
                     <div className="camera-container-modal shrink-0">
                         <div id="reader-modal"></div>
                         {/* Indicador de estado */}
@@ -229,10 +239,13 @@
                     </div>
                     
                     <div className="flex flex-col flex-grow bg-slate-900">
+                        {/* Encabezado del buffer */}
                         <div className="p-2 text-xs font-bold flex justify-between uppercase tracking-wider text-slate-400 border-b border-slate-700 shrink-0">
                             <span>Paquetes en Buffer</span>
                             <span className="text-white">{scans.length}</span>
                         </div>
+                        
+                        {/* LISTA DE PAQUETES: Este div tiene 'flex-grow' y 'overflow-y-auto' para que sea el único que se desplace */}
                         <div className="flex-grow overflow-y-auto p-3 space-y-2">
                             {scans.length === 0 ? (
                                 <div className="text-center text-slate-600 py-4 text-sm italic">Escanea un código para empezar.</div>
@@ -249,6 +262,7 @@
                             )}
                         </div>
                         
+                        {/* PIE DE PÁGINA: Este div tiene 'shrink-0' para que permanezca FIJO y no se mueva */}
                         <div className="p-3 bg-slate-800 border-t border-slate-700 shrink-0">
                             <button 
                                 onClick={confirmScans}
