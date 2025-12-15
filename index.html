@@ -24,15 +24,14 @@
         .flash { animation: flashAnim 0.3s ease-out; }
         @keyframes flashAnim { 0% { background-color: rgba(255,255,255,0.8); } 100% { background-color: transparent; } }
         
-        /* Estilos para el modal del escáner - MODIFICACIÓN AQUÍ */
+        /* Estilos para el modal del escáner - Altura reducida a 35vh para prevenir que el botón se mueva */
         .camera-container-modal { 
             width: 100%; 
-            /* Reducimos la altura máxima de 50vh a 35vh para dejar más espacio al buffer */
             max-height: 35vh; 
             overflow: hidden; 
             position: relative; 
             background: black; 
-            flex-shrink: 0; /* Asegura que no se haga más pequeña que su contenido mínimo */
+            flex-shrink: 0;
         }
         #reader-modal { width: 100%; height: 100%; }
         #reader-modal a { display: none !important; }
@@ -154,7 +153,8 @@
                                 paquete_indice: pkg.paqueteNum, 
                                 paquete_total: pkg.paquetesDePieza, 
                                 piezas_en_paquete: pkg.cantidad,
-                                tejedor: "Moto G6 Lite" 
+                                // *** CAMBIO 1: Nombre del tejedor a ESCÁNER ***
+                                tejedor: "ESCÁNER" 
                             };
                             break;
                         }
@@ -222,16 +222,17 @@
 
             if (!isVisible) return null;
 
-            const statusClass = scanStatus.type === 'info' ? 'bg-blue-600' : (scanStatus.type === 'success' ? 'bg-green-600' : (scanStatus.type === 'warning' ? 'bg-yellow-600' : 'bg-red-600'));
+            // Ajuste de colores de status para estética futurista
+            const statusClass = scanStatus.type === 'info' ? 'bg-cyan-700' : (scanStatus.type === 'success' ? 'bg-green-600' : (scanStatus.type === 'warning' ? 'bg-yellow-600' : 'bg-red-600'));
 
             return (
                 <div className="fixed inset-0 bg-black z-50 flex flex-col">
                     <div className="p-3 bg-slate-800 flex justify-between items-center shadow-md shrink-0">
-                        <h2 className="text-lg font-bold flex items-center gap-2"><Icon name="scan-line" className="text-yellow-400"/> ESCANEAR PAQUETES</h2>
+                        {/* *** CAMBIO DE ESTÉTICA: Icono Cian *** */}
+                        <h2 className="text-lg font-bold flex items-center gap-2"><Icon name="scan-line" className="text-cyan-400"/> ESCANEAR PAQUETES</h2>
                         <button onClick={onClose} className="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded text-sm font-bold flex items-center gap-1"><Icon name="x" size={16}/> CERRAR</button>
                     </div>
 
-                    {/* La altura de este contenedor fue ajustada en el CSS a max-height: 35vh */}
                     <div className="camera-container-modal shrink-0">
                         <div id="reader-modal"></div>
                         {/* Indicador de estado */}
@@ -239,19 +240,20 @@
                     </div>
                     
                     <div className="flex flex-col flex-grow bg-slate-900">
-                        {/* Encabezado del buffer */}
                         <div className="p-2 text-xs font-bold flex justify-between uppercase tracking-wider text-slate-400 border-b border-slate-700 shrink-0">
                             <span>Paquetes en Buffer</span>
                             <span className="text-white">{scans.length}</span>
                         </div>
-                        
-                        {/* LISTA DE PAQUETES: Este div tiene 'flex-grow' y 'overflow-y-auto' para que sea el único que se desplace */}
                         <div className="flex-grow overflow-y-auto p-3 space-y-2">
                             {scans.length === 0 ? (
                                 <div className="text-center text-slate-600 py-4 text-sm italic">Escanea un código para empezar.</div>
                             ) : (
                                 scans.map(scan => (
-                                    <div key={scan.code} className="flex justify-between items-center bg-slate-800 p-2 rounded border border-slate-700 border-l-4 border-yellow-500">
+                                    <div 
+                                        key={scan.code} 
+                                        // *** CAMBIO DE ESTÉTICA: Borde Cian ***
+                                        className="flex justify-between items-center bg-slate-800 p-2 rounded border border-slate-700 border-l-4 border-cyan-500"
+                                    >
                                         <div>
                                             <span className="font-mono font-bold text-base text-white block">{scan.code}</span>
                                             <span className="text-xs text-slate-400">{scan.modelo} / PQT: {scan.paquete_indice}/{scan.paquete_total}</span>
@@ -262,13 +264,13 @@
                             )}
                         </div>
                         
-                        {/* PIE DE PÁGINA: Este div tiene 'shrink-0' para que permanezca FIJO y no se mueva */}
                         <div className="p-3 bg-slate-800 border-t border-slate-700 shrink-0">
                             <button 
                                 onClick={confirmScans}
                                 disabled={scans.length === 0 || isSaving}
+                                // *** CAMBIO DE ESTÉTICA: Botón Cian con Sombra ***
                                 className={`w-full py-3 rounded font-bold text-lg shadow-lg flex items-center justify-center gap-2 transition-all
-                                    ${scans.length > 0 && !isSaving ? 'bg-green-600 text-white hover:bg-green-500' : 'bg-slate-700 text-slate-500'}
+                                    ${scans.length > 0 && !isSaving ? 'bg-cyan-600 text-white hover:bg-cyan-500 shadow-cyan-500/50 shadow-lg' : 'bg-slate-700 text-slate-500'}
                                 `}
                             >
                                 {isSaving ? <><Icon name="loader-2" className="animate-spin"/> PROCESANDO...</> : <><Icon name="check-circle-2"/> ACEPTAR Y REGISTRAR ({scans.length})</>}
@@ -308,8 +310,10 @@
                     {/* HEADER */}
                     <div className="p-3 bg-slate-800 flex justify-between items-center shadow-md z-20 shrink-0">
                         <div className="font-bold flex items-center gap-2">
-                            <Icon name="scan-barcode" className="text-yellow-400" />
-                            <span>MOTO G6 LITE</span>
+                            {/* *** CAMBIO DE ESTÉTICA: Icono Cian *** */}
+                            <Icon name="scan-barcode" className="text-cyan-400" />
+                            {/* *** CAMBIO 2: Nombre más profesional *** */}
+                            <span>ESCÁNER LITE G6</span>
                         </div>
                         <div className="text-xs text-slate-400 font-mono">{ordersCache.length} O.A.</div>
                     </div>
@@ -325,13 +329,15 @@
                     <div className="flex-grow flex flex-col items-center justify-center p-4">
                         <button 
                             onClick={() => setShowScanner(true)} 
-                            className="bg-green-600/90 hover:bg-green-500 text-white px-8 py-6 rounded-xl font-bold text-2xl shadow-xl flex flex-col items-center gap-4 transition transform active:scale-95"
+                            // *** CAMBIO DE ESTÉTICA: Botón Cian con Borde y Sombra 2XL ***
+                            className="bg-cyan-600/90 hover:bg-cyan-500 text-white px-8 py-6 rounded-xl font-bold text-2xl shadow-2xl flex flex-col items-center gap-4 transition transform active:scale-95 border border-cyan-400/50"
                         >
-                            <Icon name="camera" size={48} />
+                            <Icon name="camera" size={48} className="text-white"/>
                             <span>INICIAR ESCANEO</span>
                         </button>
                         {lastSaveCount > 0 && (
-                            <div className="mt-6 bg-blue-600 text-white p-3 rounded-lg text-sm font-bold animate-pulse">
+                            // *** CAMBIO DE ESTÉTICA: Indicador de guardado Cian ***
+                            <div className="mt-6 bg-cyan-700 text-white p-3 rounded-lg text-sm font-bold animate-pulse">
                                 ✅ Último guardado: {lastSaveCount} paquetes.
                             </div>
                         )}
@@ -346,7 +352,7 @@
                         isVisible={showScanner}
                         onClose={() => setShowScanner(false)}
                         ordersCache={ordersCache}
-                        onScanSaved={setLastSaveCount} // Para mostrar el resumen en la pantalla principal
+                        onScanSaved={setLastSaveCount} 
                     />
                 </div>
             );
