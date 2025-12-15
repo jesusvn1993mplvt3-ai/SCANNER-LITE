@@ -19,25 +19,23 @@
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
 
     <style>
+        /* ESTILOS ORIGINALES RESTAURADOS */
         body { background-color: #000; color: white; font-family: sans-serif; touch-action: manipulation; overscroll-behavior: none; }
         #root, .app-container { height: 100vh; height: 100dvh; display: flex; flex-direction: column; }
         .flash { animation: flashAnim 0.3s ease-out; }
         @keyframes flashAnim { 0% { background-color: rgba(255,255,255,0.8); } 100% { background-color: transparent; } }
         
-        /* Estilos para el modal del escáner - MODIFICACIÓN CLAVE: Proporción 6:1 */
+        /* Contenedor de la cámara (Altura normalizada) */
         .camera-container-modal { 
             width: 100%; 
-            height: 0; 
-            padding-top: 16.66%; /* 100% / 6 = 16.66% para forzar 6:1 (ancho:alto) */
+            aspect-ratio: 1; 
+            max-height: 45vh; /* Altura máxima para dejar espacio al buffer */
             overflow: hidden; 
             position: relative; 
             background: black; 
             flex-shrink: 0;
         }
         #reader-modal { 
-            position: absolute; /* Ocupa el espacio del padding-top */
-            top: 0;
-            left: 0;
             width: 100%; 
             height: 100%; 
         }
@@ -84,26 +82,25 @@
 
         // --- COMPONENTE MODAL DEL ESCÁNER ---
         const QuickScannerModal = ({ isVisible, onClose, ordersCache, onScanSaved }) => {
-            const [scans, setScans] = useState([]); // Buffer local de paquetes encontrados
+            const [scans, setScans] = useState([]); 
             const [scanStatus, setScanStatus] = useState({ message: 'Iniciando cámara...', type: 'info' });
             const [isSaving, setIsSaving] = useState(false);
             const scannerRef = useRef(null);
-            const SCAN_INTERVAL_MS = 1500; // Pausa después de cada escaneo
+            const SCAN_INTERVAL_MS = 1500; 
 
             // 1. Manejo de la cámara al abrir/cerrar
             useEffect(() => {
                 if (isVisible) {
-                    setScans([]); // Limpiar buffer al iniciar un nuevo escaneo
+                    setScans([]); 
                     setScanStatus({ message: 'Iniciando cámara...', type: 'info' });
                     
-                    // Inicializar scanner después de un pequeño retraso
                     setTimeout(() => {
                         const html5QrcodeScanner = new Html5QrcodeScanner(
                             "reader-modal", 
                             { 
-                                fps: 5, // Baja FPS
-                                // *** MODIFICACIÓN: Ajustamos qrbox a proporción ancha ***
-                                qrbox: { width: 280, height: 40 }, 
+                                fps: 5, 
+                                // *** CORRECCIÓN CLAVE: Cuadro de escaneo 6:1 (300px ancho / 50px alto) ***
+                                qrbox: { width: 300, height: 50 }, 
                                 aspectRatio: 1.0, 
                                 videoConstraints: { facingMode: "environment" } 
                             },
@@ -126,7 +123,6 @@
                         scannerRef.current = html5QrcodeScanner;
                     }, 100);
                 } else {
-                    // Limpiar scanner al cerrar
                     if (scannerRef.current) {
                         scannerRef.current.clear().catch(err => console.error("Error clearing scanner on close", err));
                         scannerRef.current = null;
@@ -229,7 +225,7 @@
 
             if (!isVisible) return null;
 
-            // Ajuste de colores de status para estética futurista
+            // Ajuste de colores de status para estética original
             const statusClass = scanStatus.type === 'info' ? 'bg-cyan-700' : (scanStatus.type === 'success' ? 'bg-green-600' : (scanStatus.type === 'warning' ? 'bg-yellow-600' : 'bg-red-600'));
 
             return (
@@ -239,7 +235,7 @@
                         <button onClick={onClose} className="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded text-sm font-bold flex items-center gap-1"><Icon name="x" size={16}/> CERRAR</button>
                     </div>
 
-                    {/* Contenedor de la cámara con proporción 6:1 (ultra-ancho) */}
+                    {/* Contenedor de la cámara */}
                     <div className="camera-container-modal shrink-0">
                         <div id="reader-modal"></div>
                         {/* Indicador de estado */}
