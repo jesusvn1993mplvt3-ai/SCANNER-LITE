@@ -3,360 +3,405 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Scanner Lite G6 - Cirineo</title>
-    <meta name="description" content="Escáner ligero de producción optimizado para dispositivos Moto G6 Play.">
-
-    <link rel="icon" type="image/png" href="https://upload.wikimedia.org/wikipedia/commons/d/d1/Barcode_Scanner_icon.png">
-    <link rel="apple-touch-icon" href="https://upload.wikimedia.org/wikipedia/commons/d/d1/Barcode_Scanner_icon.png">
+    <title>Balta Scan v17 (Visual)</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
-    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.0/dist/JsBarcode.all.min.js"></script>
+
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
 
+    <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;700&family=Roboto+Condensed:wght@400;700&display=swap" rel="stylesheet">
+
     <style>
-        /* ESTILOS ORIGINALES RESTAURADOS */
-        body { background-color: #000; color: white; font-family: sans-serif; touch-action: manipulation; overscroll-behavior: none; }
-        #root, .app-container { height: 100vh; height: 100dvh; display: flex; flex-direction: column; }
-        .flash { animation: flashAnim 0.3s ease-out; }
-        @keyframes flashAnim { 0% { background-color: rgba(255,255,255,0.8); } 100% { background-color: transparent; } }
+        body { margin: 0; background: #020617; font-family: 'Roboto Condensed', sans-serif; color: white; overflow: hidden; }
         
-        /* Contenedor de la cámara (Altura normalizada) */
-        .camera-container-modal { 
-            width: 100%; 
-            aspect-ratio: 1; 
-            max-height: 45vh; /* Altura máxima para dejar espacio al buffer */
-            overflow: hidden; 
-            position: relative; 
-            background: black; 
-            flex-shrink: 0;
+        /* Estilos del Escáner */
+        #reader { width: 100% !important; border: none !important; }
+        #reader video { object-fit: cover !important; width: 100% !important; height: 300px !important; border-radius: 24px; }
+        .scan-container { border: 4px solid #3b82f6; border-radius: 28px; overflow: hidden; position: relative; background: #000; min-height: 300px; }
+        .overlay-wait { position: absolute; inset: 0; background: rgba(2, 6, 23, 0.9); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 40; border-radius: 24px; }
+
+        /* --- ESTILOS DE LA PAPELETA (Portados de papeletas.html) --- */
+        .label-scale-wrapper {
+            width: 100%;
+            overflow: hidden;
+            background: white;
+            margin-bottom: 10px;
+            border-radius: 4px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
         }
-        #reader-modal { 
-            width: 100%; 
-            height: 100%; 
+        
+        .label-layout {
+            width: 100%;
+            aspect-ratio: 6/4; /* Proporción original */
+            display: flex;
+            border: 1px solid #ddd;
+            padding: 5px;
+            box-sizing: border-box;
+            background: white;
+            color: black;
+            position: relative;
         }
-        #reader-modal a { display: none !important; }
+
+        .col-img { width: 25%; display: flex; align-items: center; justify-content: center; border-right: 2px solid #000; padding-right: 2px; overflow: hidden; }
+        .col-img img { width: 100%; height: 100%; object-fit: contain; }
+
+        .col-data { width: 60%; display: flex; flex-direction: column; border-right: 2px solid #000; }
+
+        .col-barcode { width: 15%; display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative; }
+
+        .lbl-row { display: flex; border-bottom: 2px solid #000; width: 100%; }
+        .lbl-row:last-child { border-bottom: none; }
+        .lbl-col { border-right: 2px solid #000; padding: 1px 2px; display: flex; flex-direction: column; justify-content: center; overflow: hidden; }
+        .lbl-col:last-child { border-right: none; }
+        
+        .lbl-title { font-size: 8px; font-weight: 700; color: #555; text-transform: uppercase; line-height: 1; margin-bottom: 0px; }
+        .lbl-big { font-family: 'Oswald', sans-serif; font-weight: 700; font-size: 20px; line-height: 0.9; color: #000; }
+        .lbl-medium { font-family: 'Oswald', sans-serif; font-weight: 700; font-size: 14px; line-height: 1; color: #000; }
+        .lbl-std { font-size: 10px; font-weight: 700; color: #000; line-height: 1.1; }
+
+        /* Ajustes específicos para vista móvil comprimida */
+        .mobile-scroll-area {
+            max-height: 50vh;
+            overflow-y: auto;
+            padding: 10px;
+            background: #f1f5f9;
+            border-radius: 12px;
+        }
     </style>
 </head>
 <body>
     <div id="root"></div>
-
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
-        const firebaseConfig = {
-            apiKey: "AIzaSyBqHgV4vDat1-VmZfKbiPg7nuiX-ROcexw",
-            authDomain: "cirineo-cec21.firebaseapp.com",
-            projectId: "cirineo-cec21",
-            storageBucket: "cirineo-cec21.firebasestorage.app",
-            messagingSenderId: "620210618284",
-            appId: "1:620210618284:web:482bab9bf74650fff18409",
-            measurementId: "G-B7YLM78RVW"
+        const firebaseConfig = { 
+            apiKey: "AIzaSyCngQL1pdqghv2vbjkPycT1Xf0C46f7jYs", 
+            authDomain: "cirineo-cec21.firebaseapp.com", 
+            projectId: "cirineo-cec21", 
+            storageBucket: "cirineo-cec21.firebasestorage.app", 
+            messagingSenderId: "620210618284", 
+            appId: "1:620210618284:web:482bab9bf74650fff18409" 
         };
         if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
         const db = firebase.firestore();
-        const FieldValue = firebase.firestore.FieldValue;
 
-        const Icon = ({ name, size = 24, className, onClick }) => {
-            const ref = useRef(null);
+        // --- COMPONENTE DE ETIQUETA MINIATURA ---
+        const MiniProductionLabel = ({ data, imageSources }) => {
+            const svgRef = useRef(null);
+            
+            // Datos normalizados
+            const modelo = data.modelo || 'S/N';
+            const piezaRaw = data.piezaNombre || 'ESTANDAR';
+            const piezaVisual = piezaRaw.split(' ')[0]; // Misma lógica: solo primera palabra
+            const barcodeValue = data.codigoUnico || '0000';
+            
+            // Lógica de Imagen (Idéntica a papeletas.html)
+            const [imgSrc, setImgSrc] = useState(null);
+            const [currentSourceIdx, setCurrentSourceIdx] = useState(0);
+            const [tryPng, setTryPng] = useState(false); 
+
             useEffect(() => {
-                if (ref.current && lucide.icons[name]) {
-                    ref.current.innerHTML = lucide.icons[name].toSvg({ width: size, height: size, class: className });
-                }
-            }, [name, className]);
-            return <span ref={ref} onClick={onClick} className={`inline-flex items-center justify-center ${onClick ? 'cursor-pointer' : ''}`}></span>;
-        };
-
-        const playBeep = () => {
-            try {
-                const ctx = new (window.AudioContext || window.webkitAudioContext)();
-                const osc = ctx.createOscillator();
-                osc.type = 'square'; osc.frequency.setValueAtTime(800, ctx.currentTime);
-                osc.connect(ctx.destination); osc.start(); osc.stop(ctx.currentTime + 0.1);
-            } catch(e) {}
-        };
-
-        // --- COMPONENTE MODAL DEL ESCÁNER ---
-        const QuickScannerModal = ({ isVisible, onClose, ordersCache, onScanSaved }) => {
-            const [scans, setScans] = useState([]); 
-            const [scanStatus, setScanStatus] = useState({ message: 'Iniciando cámara...', type: 'info' });
-            const [isSaving, setIsSaving] = useState(false);
-            const scannerRef = useRef(null);
-            const SCAN_INTERVAL_MS = 1500; 
-
-            // 1. Manejo de la cámara al abrir/cerrar
-            useEffect(() => {
-                if (isVisible) {
-                    setScans([]); 
-                    setScanStatus({ message: 'Iniciando cámara...', type: 'info' });
-                    
-                    setTimeout(() => {
-                        const html5QrcodeScanner = new Html5QrcodeScanner(
-                            "reader-modal", 
-                            { 
-                                fps: 5, 
-                                // *** CORRECCIÓN CLAVE: Cuadro de escaneo 6:1 (300px ancho / 50px alto) ***
-                                qrbox: { width: 300, height: 50 }, 
-                                aspectRatio: 1.0, 
-                                videoConstraints: { facingMode: "environment" } 
-                            },
-                            false
-                        );
-
-                        const onScanSuccess = (decodedText) => {
-                            handleQuickScan(decodedText);
-                            if (scannerRef.current) {
-                                scannerRef.current.pause(); 
-                                setTimeout(() => scannerRef.current.resume(), SCAN_INTERVAL_MS); 
-                            }
-                        };
-
-                        html5QrcodeScanner.render(onScanSuccess, (errorMessage) => {
-                            if (scanStatus.message === 'Iniciando cámara...') {
-                                setScanStatus({ type: 'info', message: 'Cámara lista. Escanea.' });
-                            }
-                        });
-                        scannerRef.current = html5QrcodeScanner;
-                    }, 100);
+                if(imageSources && imageSources.length > 0 && modelo) {
+                    setCurrentSourceIdx(0);
+                    setTryPng(false);
+                    setImgSrc(`${imageSources[0].url}/${modelo}.jpg`);
                 } else {
-                    if (scannerRef.current) {
-                        scannerRef.current.clear().catch(err => console.error("Error clearing scanner on close", err));
-                        scannerRef.current = null;
-                    }
+                    setImgSrc(null);
                 }
-                return () => { if (scannerRef.current) scannerRef.current.clear().catch(err => {}); };
-            }, [isVisible]);
+            }, [modelo, imageSources]);
 
-
-            // 2. LÓGICA DE ESCANEO INTELIGENTE (Busca el Código Único)
-            const handleQuickScan = (rawCode) => {
-                if (!rawCode) return;
-                const scannedCode = rawCode.trim().toUpperCase().replace(/'/g, '-').replace(/\?/g, '_');
-
-                if (scans.some(s => s.code === scannedCode)) {
-                    setScanStatus({ message: `Código ${scannedCode} ya en la lista.`, type: 'warning' });
+            const handleImgError = () => {
+                if (!tryPng) {
+                    setTryPng(true);
+                    if(imageSources[currentSourceIdx]) {
+                        setImgSrc(`${imageSources[currentSourceIdx].url}/${modelo}.png`);
+                    }
                     return;
                 }
-
-                // Buscar el código único en todas las órdenes activas
-                let foundPackage = null;
-                for (const order of ordersCache) {
-                    if (order.progreso) {
-                        const pkg = order.progreso.find(p => p.codigoUnico === scannedCode);
-                        if (pkg) {
-                            foundPackage = { 
-                                code: scannedCode, 
-                                orderId: order.id, 
-                                modelo: order.codigo, 
-                                partida: order.partida,
-                                piezaNombre: pkg.piezaNombre,
-                                paquete_indice: pkg.paqueteNum, 
-                                paquete_total: pkg.paquetesDePieza, 
-                                piezas_en_paquete: pkg.cantidad,
-                                tejedor: "ESCÁNER" 
-                            };
-                            break;
-                        }
-                    }
+                const nextIdx = currentSourceIdx + 1;
+                if (nextIdx < imageSources.length) {
+                    setCurrentSourceIdx(nextIdx);
+                    setTryPng(false); 
+                    setImgSrc(`${imageSources[nextIdx].url}/${modelo}.jpg`);
+                } else {
+                    setImgSrc(null); 
                 }
-
-                if (!foundPackage) {
-                    setScanStatus({ message: `Código ${scannedCode} NO encontrado en órdenes.`, type: 'error' });
-                    return;
-                }
-                
-                playBeep();
-                setScans(prev => [...prev, foundPackage]);
-                setScanStatus({ type: 'success', message: `¡Leído! Paquete ${foundPackage.paquete_indice} de ${foundPackage.modelo}` });
             };
 
-            // 3. Guardar todos los escaneos
-            const confirmScans = async () => {
-                if (scans.length === 0 || isSaving) return;
-                setIsSaving(true);
-                setScanStatus({ message: `Guardando ${scans.length} registros...`, type: 'info' });
-
-                let saved = 0, duplicates = 0, errors = 0;
-                const batch = db.batch();
-                
-                for (const scan of scans) {
+            // Barcode
+            useEffect(() => {
+                if (svgRef.current && barcodeValue) {
                     try {
-                        const globalScanCheck = await db.collection('registro_produccion').where('codigo_paquete', '==', scan.code).get();
-                        if (!globalScanCheck.empty) { 
-                            duplicates++; 
-                            continue; 
-                        }
-
-                        const docRef = db.collection('registro_produccion').doc();
-                        batch.set(docRef, {
-                            codigo_paquete: scan.code, 
-                            orderId: String(scan.orderId), 
-                            fecha: FieldValue.serverTimestamp(),
-                            fecha_legible: new Date().toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }).replace(/\//g, '/'), 
-                            tejedor: scan.tejedor, 
-                            tipo: "produccion",
-                            modelo: scan.modelo,
-                            partida: scan.partida,
-                            paquete_indice: scan.paquete_indice, 
-                            paquete_total: scan.paquete_total,
-                            piezas_en_paquete: scan.piezas_en_paquete
+                        JsBarcode(svgRef.current, barcodeValue, { 
+                            format: "CODE128", lineColor: "#000", width: 2, height: 30, displayValue: false, margin: 0
                         });
-                        saved++;
-
-                    } catch (error) {
-                        console.error("Error saving scan:", error);
-                        errors++;
-                    }
+                    } catch (e) { console.error(e); }
                 }
-
-                if (saved > 0) await batch.commit();
-
-                setIsSaving(false);
-                onScanSaved(saved); // Informar al componente principal
-                onClose();
-                alert(`Guardado finalizado:\n✅ Guardados: ${saved}\n⚠️ Repetidos: ${duplicates}\n❌ Errores: ${errors}`);
-            };
-
-            const handleRemoveScan = (codeToRemove) => setScans(prev => prev.filter(scan => scan.code !== codeToRemove));
-
-            if (!isVisible) return null;
-
-            // Ajuste de colores de status para estética original
-            const statusClass = scanStatus.type === 'info' ? 'bg-cyan-700' : (scanStatus.type === 'success' ? 'bg-green-600' : (scanStatus.type === 'warning' ? 'bg-yellow-600' : 'bg-red-600'));
+            }, [barcodeValue]);
 
             return (
-                <div className="fixed inset-0 bg-black z-50 flex flex-col">
-                    <div className="p-3 bg-slate-800 flex justify-between items-center shadow-md shrink-0">
-                        <h2 className="text-lg font-bold flex items-center gap-2"><Icon name="scan-line" className="text-cyan-400"/> ESCANEAR PAQUETES</h2>
-                        <button onClick={onClose} className="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded text-sm font-bold flex items-center gap-1"><Icon name="x" size={16}/> CERRAR</button>
-                    </div>
-
-                    {/* Contenedor de la cámara */}
-                    <div className="camera-container-modal shrink-0">
-                        <div id="reader-modal"></div>
-                        {/* Indicador de estado */}
-                        <div className={`absolute bottom-0 w-full text-center py-1 text-xs font-bold ${statusClass}`}>{scanStatus.message}</div>
-                    </div>
-                    
-                    <div className="flex flex-col flex-grow bg-slate-900">
-                        <div className="p-2 text-xs font-bold flex justify-between uppercase tracking-wider text-slate-400 border-b border-slate-700 shrink-0">
-                            <span>Paquetes en Buffer</span>
-                            <span className="text-white">{scans.length}</span>
-                        </div>
-                        <div className="flex-grow overflow-y-auto p-3 space-y-2">
-                            {scans.length === 0 ? (
-                                <div className="text-center text-slate-600 py-4 text-sm italic">Escanea un código para empezar.</div>
+                <div className="label-scale-wrapper">
+                    <div className="label-layout">
+                        {/* IMAGEN */}
+                        <div className="col-img">
+                            {imgSrc ? (
+                                <img src={imgSrc} onError={handleImgError} alt={modelo}/>
                             ) : (
-                                scans.map(scan => (
-                                    <div 
-                                        key={scan.code} 
-                                        className="flex justify-between items-center bg-slate-800 p-2 rounded border border-slate-700 border-l-4 border-cyan-500"
-                                    >
-                                        <div>
-                                            <span className="font-mono font-bold text-base text-white block">{scan.code}</span>
-                                            <span className="text-xs text-slate-400">{scan.modelo} / PQT: {scan.paquete_indice}/{scan.paquete_total}</span>
-                                        </div>
-                                        <button onClick={() => handleRemoveScan(scan.code)} className="text-red-500 p-1 bg-slate-700 rounded-full flex items-center justify-center"><Icon name="trash-2" size={16}/></button>
-                                    </div>
-                                ))
+                                <div className="text-[8px] text-gray-400 font-bold text-center">SIN<br/>FOTO</div>
                             )}
                         </div>
-                        
-                        <div className="p-3 bg-slate-800 border-t border-slate-700 shrink-0">
-                            <button 
-                                onClick={confirmScans}
-                                disabled={scans.length === 0 || isSaving}
-                                className={`w-full py-3 rounded font-bold text-lg shadow-lg flex items-center justify-center gap-2 transition-all
-                                    ${scans.length > 0 && !isSaving ? 'bg-cyan-600 text-white hover:bg-cyan-500 shadow-cyan-500/50 shadow-lg' : 'bg-slate-700 text-slate-500'}
-                                `}
-                            >
-                                {isSaving ? <><Icon name="loader-2" className="animate-spin"/> PROCESANDO...</> : <><Icon name="check-circle-2"/> ACEPTAR Y REGISTRAR ({scans.length})</>}
-                            </button>
+
+                        {/* DATOS */}
+                        <div className="col-data">
+                            {/* Fila 1 */}
+                            <div className="lbl-row" style={{height: '18%'}}>
+                                <div className="lbl-col" style={{width: '60%'}}>
+                                    <div className="lbl-title">MODELO</div>
+                                    <div className="lbl-big" style={{fontSize: '18px'}}>{modelo}</div>
+                                </div>
+                                <div className="lbl-col" style={{width: '40%'}}>
+                                    <div className="lbl-title">CLIENTE</div>
+                                    <div className="lbl-std truncate" style={{fontSize: '9px'}}>{data.cliente || '-'}</div>
+                                </div>
+                            </div>
+                            
+                            {/* Fila 2: PIEZA GRANDE */}
+                            <div className="lbl-row" style={{height: '22%', backgroundColor: '#000', color: '#FFF'}}>
+                                <div className="lbl-col" style={{width: '100%', alignItems: 'center', border: 'none'}}>
+                                    <span style={{fontFamily: "'Oswald', sans-serif", fontSize: '24px', fontWeight: 'bold'}}>{piezaVisual}</span>
+                                </div>
+                            </div>
+
+                            {/* Fila 3: Paquete Info */}
+                            <div className="lbl-row" style={{height: '30%'}}>
+                                <div className="lbl-col" style={{width: '33%', textAlign: 'center'}}>
+                                    <div className="lbl-title">PAQ</div>
+                                    <div className="lbl-big">{data.paqueteNum}/{data.paquetesDePieza}</div>
+                                </div>
+                                <div className="lbl-col" style={{width: '33%', backgroundColor: '#eee', textAlign: 'center'}}>
+                                    <div className="lbl-title">CANT</div>
+                                    <div className="lbl-big">{data.cantidad}</div>
+                                </div>
+                                <div className="lbl-col" style={{width: '34%', textAlign: 'center', backgroundColor: '#000'}}>
+                                    <div className="lbl-title" style={{color:'#ccc'}}>MAQ</div>
+                                    <div className="lbl-big" style={{color:'white'}}>{data.maquina || '0'}</div>
+                                </div>
+                            </div>
+
+                             {/* Fila 4: Info extra */}
+                             <div className="lbl-row" style={{flexGrow: 1, borderBottom: 'none'}}>
+                                <div className="lbl-col" style={{width: '50%'}}>
+                                    <div className="lbl-title">TALLA</div>
+                                    <div className="lbl-std">{data.talla || 'U'}</div>
+                                </div>
+                                <div className="lbl-col" style={{width: '50%'}}>
+                                    <div className="lbl-title">PARTIDA</div>
+                                    <div className="lbl-std">{data.partida || '-'}</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* BARCODE */}
+                        <div className="col-barcode">
+                             <div style={{transform: 'rotate(90deg)', width: '80px', display: 'flex', flexDirection: 'column', alignItems: 'center'}}>
+                                <svg ref={svgRef} style={{width: '100%', height: 'auto'}}></svg>
+                                <div style={{fontSize: '8px', fontFamily: 'monospace'}}>{barcodeValue}</div>
+                             </div>
                         </div>
                     </div>
                 </div>
             );
         };
 
+        const App = () => {
+            const [active, setActive] = useState(false);
+            const [pending, setPending] = useState(null);
+            const [msg, setMsg] = useState("Listo para escanear");
+            const [wait, setWait] = useState(0);
+            const [kits, setKits] = useState([]);
+            const [orders, setOrders] = useState([]);
+            const [imageSources, setImageSources] = useState([]);
+            const html5QrCode = useRef(null);
 
-        // --- COMPONENTE PRINCIPAL ---
-        const ScannerG6 = () => {
-            const [ordersCache, setOrdersCache] = useState([]);
-            const [statusMsg, setStatusMsg] = useState("Cargando base de datos...");
-            const [errorMsg, setErrorMsg] = useState("");
-            const [showScanner, setShowScanner] = useState(false);
-            const [lastSaveCount, setLastSaveCount] = useState(0);
-
-            // Cargar datos
+            // Cargar datos y configuración de imágenes
             useEffect(() => {
-                const unsubscribe = db.collection('orders')
-                    .where('status', '!=', 'ARCHIVADO')
-                    .onSnapshot(snapshot => {
-                        const loadedOrders = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
-                        setOrdersCache(loadedOrders);
-                        setStatusMsg(`Base de datos lista: ${loadedOrders.length} órdenes activas.`);
-                    }, err => {
-                        setErrorMsg("Error cargando datos: " + err.message);
-                    });
-                return () => unsubscribe();
+                db.collection('kits_produccion').onSnapshot(s => setKits(s.docs.map(d => d.data())));
+                db.collection('orders').onSnapshot(s => setOrders(s.docs.map(d => ({id: d.id, ...d.data()}))));
+                
+                // Cargar config de imágenes igual que en papeletas.html
+                db.collection('app_config').doc('imagenes').onSnapshot(doc => {
+                    if(doc.exists && doc.data().sources) {
+                        setImageSources(doc.data().sources);
+                    }
+                });
             }, []);
 
+            const startCamera = () => {
+                const scanner = new Html5Qrcode("reader");
+                html5QrCode.current = scanner;
+                scanner.start(
+                    { facingMode: "environment" },
+                    { fps: 20, qrbox: { width: 250, height: 250 } },
+                    (text) => {
+                        setPending(prev => {
+                            if (!prev && wait === 0) {
+                                handleRead(text.trim());
+                            }
+                            return prev;
+                        });
+                    }
+                ).catch(err => setMsg("Error: " + err));
+            };
+
+            const handleRead = (code) => {
+                const raw = code.toUpperCase();
+                if (raw.startsWith('K')) {
+                    const foundKit = kits.find(k => k.kitId === raw);
+                    if (foundKit) {
+                        // Enriquecer datos del kit con info de la orden (cliente, etc)
+                        const orderInfo = orders.find(o => o.codigo === foundKit.modelo) || {};
+                        const piezasEnriquecidas = foundKit.piezas.map(p => ({
+                            ...p,
+                            modelo: foundKit.modelo,
+                            partida: foundKit.partida,
+                            cliente: orderInfo.cliente
+                        }));
+                        
+                        setPending({ 
+                            type: 'KIT', 
+                            data: { ...foundKit, piezas: piezasEnriquecidas } 
+                        });
+                    }
+                    else setMsg("❌ KIT NO ENCONTRADO");
+                } else {
+                    let foundItem = null;
+                    orders.forEach(o => {
+                        const match = o.progreso?.find(p => p.codigoUnico === raw);
+                        if (match) foundItem = { ...match, orderId: o.id, modelo: o.codigo, partida: o.partida, cliente: o.cliente };
+                    });
+                    if (foundItem) setPending({ type: 'INDV', data: foundItem });
+                    else setMsg("❌ PAQUETE NO ENCONTRADO");
+                }
+            };
+
+            const confirmUpload = async () => {
+                const batch = db.batch();
+                const now = firebase.firestore.FieldValue.serverTimestamp();
+                
+                try {
+                    if (pending.type === 'KIT') {
+                        pending.data.piezas.forEach(p => {
+                            batch.set(db.collection('registro_produccion').doc(), {
+                                code: p.codigoUnico, modelo: pending.data.modelo, orderId: p.orderId,
+                                partida: pending.data.partida, paquete_indice: p.paqueteNum,
+                                tejedor: "Balta Scan", fecha: now, kitId: pending.data.kitId,
+                                maquina: p.maquina || 'SN', finished: false
+                            });
+                        });
+                    } else {
+                        const p = pending.data;
+                        batch.set(db.collection('registro_produccion').doc(), {
+                            code: p.codigoUnico, modelo: p.modelo, orderId: p.orderId,
+                            partida: p.partida, paquete_indice: p.paqueteNum,
+                            tejedor: "Balta Scan", fecha: now, maquina: p.maquina || 'SN', finished: false
+                        });
+                    }
+                    await batch.commit();
+                    setPending(null);
+                    setWait(5);
+                } catch (e) { setMsg("Error al enviar"); }
+            };
+
+            useEffect(() => {
+                let timer;
+                if (wait > 0) {
+                    timer = setTimeout(() => setWait(wait - 1), 1000);
+                }
+                return () => clearTimeout(timer);
+            }, [wait]);
+
             return (
-                <div className="app-container bg-slate-900 text-white relative">
-
-                    {/* HEADER */}
-                    <div className="p-3 bg-slate-800 flex justify-between items-center shadow-md z-20 shrink-0">
-                        <div className="font-bold flex items-center gap-2">
-                            <Icon name="scan-barcode" className="text-cyan-400" />
-                            <span>ESCÁNER LITE G6</span>
+                <div className="p-4 h-screen flex flex-col bg-[#020617] box-border">
+                    {!active ? (
+                        <div className="flex-1 flex flex-col items-center justify-center gap-6">
+                            <img src="https://raw.githubusercontent.com/jesusvn1993mplvt3-ai/Planificador/refs/heads/main/Balta.png" className="w-40" />
+                            <button onClick={() => { setActive(true); setTimeout(startCamera, 100); }} className="w-full bg-blue-600 py-10 rounded-[2.5rem] font-black text-2xl">ENCENDER CÁMARA</button>
                         </div>
-                        <div className="text-xs text-slate-400 font-mono">{ordersCache.length} O.A.</div>
-                    </div>
+                    ) : (
+                        <div className="flex-1 flex flex-col min-h-0">
+                            {/* ÁREA DE CÁMARA (Más pequeña si hay pendiente) */}
+                            <div className={`scan-container transition-all duration-300 ${pending ? 'h-48 min-h-[150px]' : 'flex-grow'}`}>
+                                <div id="reader" style={{height: '100%'}}></div>
+                                {wait > 0 && (
+                                    <div className="overlay-wait">
+                                        <span className="text-7xl font-black text-blue-500">{wait}</span>
+                                        <p className="font-bold text-xs uppercase tracking-[0.2em] mt-2">Siguiente en...</p>
+                                    </div>
+                                )}
+                            </div>
+                            
+                            {/* ESTADO DE CÁMARA */}
+                            {!pending && (
+                                <div className="mt-4 p-3 bg-slate-900 rounded-xl text-center border border-slate-800">
+                                    <span className="text-[10px] font-black uppercase tracking-widest text-blue-400">
+                                        {wait > 0 ? "Reposo de cámara" : "Listo para escanear"}
+                                    </span>
+                                </div>
+                            )}
 
-                    {/* STATUS BAR */}
-                    {(errorMsg || statusMsg) && (
-                        <div className={`p-1 text-xs text-center font-mono truncate ${errorMsg ? 'bg-red-900 text-white' : 'bg-slate-700 text-slate-300'} shrink-0`}>
-                            {errorMsg || statusMsg}
+                            {/* PANEL DE PENDIENTE (MODIFICADO) */}
+                            {pending && (
+                                <div className="mt-2 flex-grow bg-white rounded-t-3xl p-4 text-slate-900 flex flex-col shadow-2xl animate-bounce-in overflow-hidden relative" style={{borderTop: '4px solid #facc15'}}>
+                                    
+                                    {/* Cabecera del Panel */}
+                                    <div className="flex justify-between items-end mb-2 pb-2 border-b">
+                                        <div>
+                                            <p className="text-2xl font-black leading-none text-blue-900">
+                                                {pending.type === 'KIT' ? pending.data.kitId : pending.data.codigoUnico}
+                                            </p>
+                                            <p className="text-sm font-bold text-slate-500">
+                                                {pending.type === 'KIT' ? `${pending.data.piezas.length} PAQUETES DETECTADOS` : pending.data.modelo}
+                                            </p>
+                                        </div>
+                                        {pending.type === 'KIT' && (
+                                            <span className="bg-yellow-400 text-yellow-900 text-xs font-bold px-2 py-1 rounded">KIT AGRUPADO</span>
+                                        )}
+                                    </div>
+
+                                    {/* CONTENIDO DESPLAZABLE DE PAPELETAS */}
+                                    <div className="mobile-scroll-area flex-grow">
+                                        {pending.type === 'KIT' ? (
+                                            pending.data.piezas.map((pieza, idx) => (
+                                                <MiniProductionLabel key={idx} data={pieza} imageSources={imageSources} />
+                                            ))
+                                        ) : (
+                                            <MiniProductionLabel data={pending.data} imageSources={imageSources} />
+                                        )}
+                                    </div>
+
+                                    {/* Botones de acción fijos abajo */}
+                                    <div className="grid grid-cols-2 gap-3 mt-3 pt-2 border-t bg-white">
+                                        <button onClick={() => setPending(null)} className="bg-slate-200 py-3 rounded-xl font-black text-slate-500 text-sm">CANCELAR</button>
+                                        <button onClick={confirmUpload} className="bg-blue-600 hover:bg-blue-700 py-3 rounded-xl font-black text-white text-lg uppercase shadow-lg">
+                                            CONFIRMAR
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     )}
-
-                    {/* MAIN CONTENT / BUTTON */}
-                    <div className="flex-grow flex flex-col items-center justify-center p-4">
-                        <button 
-                            onClick={() => setShowScanner(true)} 
-                            className="bg-cyan-600/90 hover:bg-cyan-500 text-white px-8 py-6 rounded-xl font-bold text-2xl shadow-2xl flex flex-col items-center gap-4 transition transform active:scale-95 border border-cyan-400/50"
-                        >
-                            <Icon name="camera" size={48} className="text-white"/>
-                            <span>INICIAR ESCANEO</span>
-                        </button>
-                        {lastSaveCount > 0 && (
-                            <div className="mt-6 bg-cyan-700 text-white p-3 rounded-lg text-sm font-bold animate-pulse">
-                                ✅ Último guardado: {lastSaveCount} paquetes.
-                            </div>
-                        )}
-                        <div className="mt-8 text-center text-slate-500 text-sm">
-                            <Icon name="archive" size={16} className="inline-block mr-1"/>
-                            Órdenes activas: {ordersCache.length}
-                        </div>
-                    </div>
-                    
-                    {/* MODAL DEL ESCANER */}
-                    <QuickScannerModal
-                        isVisible={showScanner}
-                        onClose={() => setShowScanner(false)}
-                        ordersCache={ordersCache}
-                        onScanSaved={setLastSaveCount} 
-                    />
                 </div>
             );
         };
-
         const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<ScannerG6 />);
+        root.render(<App />);
     </script>
 </body>
 </html>
