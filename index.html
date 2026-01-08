@@ -3,66 +3,37 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Balta Scan - Urban Edition</title>
+    <title>Balta Central - Selector de Modo</title>
+    
+    <meta name="theme-color" content="#000000">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <link rel="icon" type="image/png" href="https://raw.githubusercontent.com/jesusvn1993mplvt3-ai/Planificador/refs/heads/main/Balta.png">
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <script src="https://unpkg.com/html5-qrcode"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
-
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+    
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
 
-    <link href="https://fonts.googleapis.com/css2?family=Permanent+Marker&family=Black+Ops+One&family=Roboto+Mono:wght@700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Permanent+Marker&family=Black+Ops+One&family=Roboto+Mono:wght@700&family=Inter:wght@400;900&display=swap" rel="stylesheet">
 
     <style>
-        body { 
-            background-color: #1a1a1a;
-            background-image: 
-                linear-gradient(rgba(0,0,0,0.85), rgba(0,0,0,0.85)),
-                url('https://img.freepik.com/free-photo/black-brick-wall-texture-background_53876-14329.jpg');
-            background-size: cover;
-            background-attachment: fixed;
-            color: #eee; 
-            font-family: 'Roboto Mono', monospace;
-            overflow: hidden;
-        }
-
+        /* Estilos Globales y de Transición */
+        body { margin: 0; overflow: hidden; transition: background 0.5s ease; }
         .font-graffiti { font-family: 'Permanent Marker', cursive; }
         .font-stencil { font-family: 'Black Ops One', system-ui; }
-
-        /* Efecto Neón */
-        .neon-text {
-            text-shadow: 0 0 5px #fff, 0 0 10px #fff, 0 0 20px #ff00de, 0 0 30px #ff00de, 0 0 40px #ff00de;
-        }
-        .neon-border {
-            box-shadow: 0 0 5px #fff, 0 0 10px #fff, 0 0 20px #00ff00, 0 0 30px #00ff00;
-        }
-
-        /* Animaciones */
-        .spray-enter { animation: sprayIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
-        @keyframes sprayIn { 
-            from { opacity: 0; transform: scale(0.8) rotate(-5deg); } 
-            to { opacity: 1; transform: scale(1) rotate(0deg); } 
-        }
-
-        .glitch-effect {
-            position: relative;
-        }
+        
+        /* Efectos Urbanos */
+        .neon-text { text-shadow: 0 0 5px #fff, 0 0 10px #fff, 0 0 20px #ff00de, 0 0 30px #ff00de; }
         .glitch-effect::before {
-            content: attr(data-text);
-            position: absolute;
-            left: -2px;
-            text-shadow: 1px 0 red;
-            background: #1a1a1a;
-            overflow: hidden;
-            top: 0;
-            clip: rect(0, 900px, 0, 0); 
+            content: attr(data-text); position: absolute; left: -2px; text-shadow: 1px 0 red;
+            background: #1a1a1a; overflow: hidden; top: 0; clip: rect(0, 900px, 0, 0); 
             animation: noise-anim 2s infinite linear alternate-reverse;
         }
-
         @keyframes noise-anim {
             0% { clip: rect(10px, 9999px, 30px, 0); }
             20% { clip: rect(80px, 9999px, 100px, 0); }
@@ -70,8 +41,18 @@
             100% { clip: rect(60px, 9999px, 70px, 0); }
         }
 
-        #reader { width: 100%; border-radius: 10px; overflow: hidden; border: 4px solid #333; }
-        #reader video { object-fit: cover; border-radius: 10px; }
+        /* Efectos Balta Standard */
+        .scan-wrapper { width: 100%; height: 280px; border: 3px solid #3b82f6; border-radius: 24px; position: relative; overflow: hidden; background: #000; }
+        #reader video { object-fit: cover; width: 100% !important; height: 100% !important; border-radius: 20px; }
+        
+        /* Animaciones del Menú */
+        .split-container { display: flex; flex-direction: column; height: 100vh; width: 100vw; }
+        .split-section { flex: 1; position: relative; overflow: hidden; cursor: pointer; transition: all 0.3s ease; display: flex; align-items: center; justify-content: center; }
+        .split-section:active { transform: scale(0.98); }
+        
+        @media (min-width: 768px) {
+            .split-container { flex-direction: row; }
+        }
     </style>
 </head>
 <body>
@@ -80,6 +61,7 @@
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
+        // --- CONFIGURACIÓN FIREBASE ---
         const firebaseConfig = {
             apiKey: "AIzaSyCngQL1pdqghv2vbjkPycT1Xf0C46f7jYs",
             authDomain: "cirineo-cec21.firebaseapp.com",
@@ -88,10 +70,17 @@
             messagingSenderId: "620210618284",
             appId: "1:620210618284:web:482bab9bf74650fff18409"
         };
-
         if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
         const db = firebase.firestore();
 
+        // --- SONIDOS ---
+        const SOUND_STANDARD = new Audio("https://github.com/jesusvn1993mplvt3-ai/TejidoBalta/raw/refs/heads/main/Data/author.mp3");
+        // Sirena de policía para el modo Urban
+        const SOUND_SIREN = new Audio("https://cdn.pixabay.com/audio/2022/03/15/audio_73229b4651.mp3"); 
+
+        // ==========================================
+        // COMPONENTES UTILITARIOS
+        // ==========================================
         const Icon = ({ name, size = 24, className }) => {
             const r = useRef(null);
             useEffect(() => { 
@@ -101,256 +90,308 @@
             return <span ref={r} className={`inline-flex items-center justify-center ${className}`}/>;
         };
 
-        const App = () => {
+        const CloseButtonBalta = ({ onClick }) => (
+            <button onClick={onClick} className="relative w-11 h-11 flex items-center justify-center bg-white/10 rounded-xl border border-white/20 z-50">
+                <span className="absolute font-black text-4xl text-black z-0">X</span>
+                <img src="https://raw.githubusercontent.com/jesusvn1993mplvt3-ai/Planificador/refs/heads/main/Balta.png" className="w-8 h-8 rounded-full z-10" />
+            </button>
+        );
+
+        // ==========================================
+        // MODO 1: STANDARD (BALTA SCAN v12)
+        // ==========================================
+        const StandardMode = ({ onExit }) => {
+            const [orders, setOrders] = useState([]);
+            const [recent, setRecent] = useState([]);
+            const [showScan, setShowScan] = useState(false);
+            const [scans, setScans] = useState([]);
+            const [wait, setWait] = useState(0);
+            const [msg, setMsg] = useState("Escanea Código de Barras");
+            
+            const scansRef = useRef([]);
+            const qrRef = useRef(null);
+            const waitRef = useRef(0);
+
+            // Fetch Data
+            useEffect(() => {
+                const unsubOrders = db.collection('orders').where('status','!=','ARCHIVADO').onSnapshot(s => {
+                    setOrders(s.docs.map(d => ({...d.data(), id: d.id})));
+                });
+                const unsubRecent = db.collection('registro_produccion').orderBy('fecha','desc').limit(5).onSnapshot(s => {
+                    setRecent(s.docs.map(d => d.data()));
+                });
+                return () => { unsubOrders(); unsubRecent(); }
+            }, []);
+
+            // Scanner Logic Standard
+            useEffect(() => { scansRef.current = scans; }, [scans]);
+            useEffect(() => { waitRef.current = wait; }, [wait]);
+
+            useEffect(() => {
+                let html5QrCode;
+                if (showScan) {
+                    setTimeout(() => {
+                        html5QrCode = new Html5Qrcode("reader-std", { formatsToSupport: [Html5QrcodeSupportedFormats.CODE_128, Html5QrcodeSupportedFormats.EAN_13, Html5QrcodeSupportedFormats.CODE_39], verbose: false });
+                        qrRef.current = html5QrCode;
+                        
+                        html5QrCode.start({ facingMode: "environment" }, { fps: 15, qrbox: { width: 300, height: 120 }, aspectRatio: 1.0 }, 
+                            (text) => {
+                                if (waitRef.current > 0) return;
+                                const code = text.trim().toUpperCase();
+                                if (scansRef.current.some(s => s.code === code)) { setMsg("⚠️ YA ESCANEADO"); return; }
+                                
+                                let found = null;
+                                orders.forEach(o => {
+                                    const p = o.progreso?.find(pkg => pkg.codigoUnico === code);
+                                    if (p) found = { 
+                                        code: code, codigo_paquete: code, modelo: o.codigo, 
+                                        orderId: o.id, partida: o.partida || "S/N", 
+                                        paquete_indice: p.paqueteNum || 0, paquete_total: o.progreso ? o.progreso.length : 0
+                                    };
+                                });
+
+                                if (found) {
+                                    SOUND_STANDARD.play().catch(e => console.log(e));
+                                    setScans(prev => [found, ...prev]);
+                                    setMsg(`✅ ${found.modelo}`);
+                                    setWait(3); 
+                                } else {
+                                    setMsg("❌ NO ENCONTRADO");
+                                }
+                            },
+                            () => {}
+                        ).catch(err => setMsg("Error Cámara"));
+                    }, 100);
+                }
+                return () => {
+                    if (qrRef.current && qrRef.current.isScanning) {
+                        qrRef.current.stop().then(() => qrRef.current.clear());
+                    }
+                };
+            }, [showScan, orders]);
+
+            // Countdown Timer
+            useEffect(() => {
+                if (wait > 0) {
+                    const t = setTimeout(() => setWait(prev => prev - 1), 1000);
+                    return () => clearTimeout(t);
+                }
+            }, [wait]);
+
+            const confirmBatch = async () => {
+                if (scans.length === 0) { setShowScan(false); return; }
+                const b = db.batch();
+                scans.forEach(s => {
+                    const ref = db.collection('registro_produccion').doc();
+                    b.set(ref, { ...s, fecha: firebase.firestore.FieldValue.serverTimestamp(), tejedor: "Balta", device: navigator.userAgent, tipo_scan: "BARCODE" });
+                });
+                await b.commit();
+                setScans([]);
+                setShowScan(false);
+            };
+
+            return (
+                <div className="min-h-screen flex flex-col items-center justify-center relative font-sans text-white">
+                    {/* Header Logo */}
+                    <div className="fixed top-0 left-0 w-full bg-[#020617]/90 backdrop-blur p-2 flex justify-center border-b border-red-900/30 z-10">
+                        <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/d/de/CJNG_Logo.svg/1024px-CJNG_Logo.svg.png" className="h-12" />
+                        <button onClick={onExit} className="absolute right-4 top-3 text-xs font-bold text-slate-500 border border-slate-700 px-2 py-1 rounded hover:bg-slate-800">MENÚ</button>
+                    </div>
+
+                    <div className="text-center animate-fade-in mt-20">
+                        <img src="https://raw.githubusercontent.com/jesusvn1993mplvt3-ai/Planificador/refs/heads/main/Balta.png" className="w-32 h-32 rounded-full mx-auto mb-6 shadow-2xl shadow-blue-900/50 border-4 border-slate-800" />
+                        <h1 className="text-3xl font-black italic text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-white">BALTA SCAN</h1>
+                        <p className="text-blue-500 font-bold text-xs tracking-widest mt-2">MODO CÓDIGO DE BARRAS</p>
+                    </div>
+
+                    <div onClick={() => setShowScan(true)} className="mt-12 w-64 py-10 bg-gradient-to-b from-slate-800 to-slate-900 border border-slate-700 rounded-[2.5rem] flex flex-col items-center gap-4 cursor-pointer hover:border-blue-500 shadow-2xl active:scale-95 transition-all">
+                        <div className="bg-blue-600 p-5 rounded-full shadow-[0_0_20px_rgba(37,99,235,0.5)]">
+                            <span className="font-black text-3xl text-white">|||</span>
+                        </div>
+                        <span className="font-black text-xs uppercase tracking-[0.2em] text-blue-200">Escanear Barras</span>
+                    </div>
+
+                    {/* MODAL SCANNER */}
+                    {showScan && (
+                        <div className="fixed inset-0 z-[700] bg-[#020617] flex flex-col p-6">
+                            <div className="flex justify-between items-center mb-4">
+                                <h2 className="font-black text-blue-500 text-xl">Lector de Barras</h2>
+                                <CloseButtonBalta onClick={() => setShowScan(false)} />
+                            </div>
+                            
+                            <div className="scan-wrapper mb-4 shadow-lg shadow-blue-900/20">
+                                <div id="reader-std"></div>
+                                {wait > 0 && <div className="absolute inset-0 flex items-center justify-center bg-black/90 z-50 text-6xl font-black text-blue-500 animate-pulse">{wait}</div>}
+                                <div className="absolute top-1/2 left-[10%] right-[10%] h-0.5 bg-red-500/50 pointer-events-none"></div>
+                            </div>
+
+                            <div className="text-center py-2 mb-2 bg-slate-900/50 rounded text-sm font-black text-white border border-slate-700">
+                                {msg}
+                            </div>
+
+                            <div className="flex-1 overflow-y-auto space-y-2 mb-4 pr-1">
+                                {scans.map((s, idx) => (
+                                    <div key={idx} className="bg-slate-800 p-3 rounded-xl border border-slate-700 flex justify-between items-center text-sm shadow-sm">
+                                        <div><span className="block font-mono text-slate-300 text-xs">{s.code}</span></div>
+                                        <span className="text-blue-400 font-black">{s.modelo}</span>
+                                    </div>
+                                ))}
+                            </div>
+
+                            <button onClick={confirmBatch} className="w-full py-4 bg-blue-600 rounded-xl font-black uppercase text-sm shadow-lg text-white tracking-widest">
+                                {scans.length > 0 ? `Confirmar (${scans.length})` : "Cerrar"}
+                            </button>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        // ==========================================
+        // MODO 2: URBAN (GRAFFITI EDITION)
+        // ==========================================
+        const UrbanMode = ({ onExit }) => {
             const [scanning, setScanning] = useState(false);
             const [scannedData, setScannedData] = useState(null);
             const [status, setStatus] = useState("ESPERANDO ACCIÓN...");
             const [statusColor, setStatusColor] = useState("text-gray-400");
             const scannerRef = useRef(null);
 
-            // Iniciar Escáner
             useEffect(() => {
                 if (scanning) {
-                    const html5QrCode = new Html5Qrcode("reader");
+                    const html5QrCode = new Html5Qrcode("reader-urb");
                     scannerRef.current = html5QrCode;
-                    const config = { fps: 10, qrbox: { width: 250, height: 250 } };
-                    
-                    html5QrCode.start({ facingMode: "environment" }, config, 
+                    html5QrCode.start({ facingMode: "environment" }, { fps: 10, qrbox: { width: 250, height: 250 } }, 
                         (decodedText) => {
                             html5QrCode.stop().then(() => {
                                 setScanning(false);
                                 processCode(decodedText);
                             });
                         },
-                        (errorMessage) => { /* ignorar errores de frame */ }
+                        () => {}
                     ).catch(err => {
-                        console.error(err);
                         setScanning(false);
                         setStatus("ERROR DE CÁMARA");
                         setStatusColor("text-red-500");
                     });
-
-                    return () => {
-                        try { if(scannerRef.current) scannerRef.current.stop(); } catch(e){}
-                    };
+                    return () => { try { if(scannerRef.current) scannerRef.current.stop(); } catch(e){} };
                 }
             }, [scanning]);
 
             const processCode = async (code) => {
-                setStatus("BUSCANDO EN EL SISTEMA...");
+                setStatus("BUSCANDO...");
                 setStatusColor("text-yellow-400");
-                
                 try {
-                    // 1. Verificamos si es un KIT (Busca en la colección generada por el Kit Maker V12.1)
-                    let kitDoc = null;
-                    let isKit = false;
-
-                    // CAMBIO PRINCIPAL: Buscar en 'kits_datos' que es donde guarda el Kit Maker
                     const kitRef = db.collection('kits_datos').doc(code);
                     const kitSnap = await kitRef.get();
 
                     if (kitSnap.exists) {
-                        kitDoc = kitSnap.data();
-                        isKit = true;
-                    }
-
-                    if (isKit) {
-                        // Es un Kit: Preparamos los datos
+                        const kitDoc = kitSnap.data();
                         setScannedData({
-                            type: 'KIT',
-                            id: code,
-                            modelo: kitDoc.modelo,
-                            partida: kitDoc.partida,
-                            talla: kitDoc.talla,
-                            cantidad: kitDoc.piezas.length, // Cantidad de "paquetes" dentro del kit
-                            piezas: kitDoc.piezas, // Array de piezas con toda la data necesaria
-                            displayMaq: kitDoc.piezas[0]?.maquinaOriginal || 'Multi'
+                            type: 'KIT', id: code, modelo: kitDoc.modelo, partida: kitDoc.partida,
+                            talla: kitDoc.talla, cantidad: kitDoc.piezas.length, piezas: kitDoc.piezas
                         });
                         setStatus("¡KIT ENCONTRADO!");
                         setStatusColor("text-green-400");
                     } else {
-                        // NO es un kit, intentamos buscar pieza individual
-                        let foundOrder = null;
-                        let foundPiece = null;
-
                         const ordersSnap = await db.collection('orders').where('status', '!=', 'ARCHIVADO').get();
-                        
+                        let found = null;
                         for (let doc of ordersSnap.docs) {
-                            const oData = doc.data();
-                            if (oData.progreso) {
-                                const match = oData.progreso.find(p => p.codigoUnico === code);
-                                if (match) {
-                                    foundOrder = { id: doc.id, ...oData };
-                                    foundPiece = match;
-                                    break;
-                                }
-                            }
+                            const o = doc.data();
+                            const p = o.progreso?.find(pk => pk.codigoUnico === code);
+                            if (p) { found = { id: code, modelo: o.codigo, partida: o.partida, orderId: doc.id, maquina: p.maquina, paqueteIndice: p.paqueteNum, paqueteTotal: o.totalPedido, piezas: [p], type: 'PIEZA', cantidad: 1 }; break; }
                         }
-
-                        if (foundOrder && foundPiece) {
-                            setScannedData({
-                                type: 'PIEZA',
-                                id: code,
-                                modelo: foundOrder.codigo,
-                                partida: foundOrder.partida,
-                                cantidad: 1,
-                                orderId: foundOrder.id,
-                                maquina: foundPiece.maquina,
-                                paqueteIndice: foundPiece.paqueteNum,
-                                paqueteTotal: foundOrder.totalPedido || '?',
-                                piezas: [foundPiece] 
-                            });
-                            setStatus("PIEZA ÚNICA DETECTADA");
+                        if (found) {
+                            setScannedData(found);
+                            setStatus("PIEZA ÚNICA");
                             setStatusColor("text-blue-400");
                         } else {
-                            // No encontrado
-                            setScannedData({
-                                type: 'UNKNOWN',
-                                id: code,
-                                modelo: 'DESCONOCIDO',
-                                partida: '?',
-                                cantidad: 0
-                            });
-                            setStatus("CÓDIGO NO RECONOCIDO");
+                            setScannedData({ type: 'UNKNOWN', id: code, modelo: 'DESCONOCIDO' });
+                            setStatus("NO RECONOCIDO");
                             setStatusColor("text-red-500");
                         }
                     }
-
-                } catch (e) {
-                    console.error(e);
-                    setStatus("ERROR DE LECTURA");
-                    setStatusColor("text-red-500");
-                }
+                } catch (e) { setStatus("ERROR DB"); setStatusColor("text-red-500"); }
             };
 
             const confirmRegister = async () => {
                 if (!scannedData || scannedData.type === 'UNKNOWN') return;
+                setStatus("RAYANDO EL MURO...");
                 
-                setStatus("RAYANDO EL MURO (GUARDANDO)...");
-                setStatusColor("text-pink-500");
-
-                const batch = db.batch();
-                const now = new Date().toISOString();
-
                 try {
-                    // Si es KIT, guardamos cada pieza individualmente usando los datos del Kit Maker
-                    if (scannedData.type === 'KIT') {
-                        
-                        scannedData.piezas.forEach(pieza => {
-                            const ref = db.collection('registro_produccion').doc(); // Auto ID
-                            
-                            // El Kit Maker V12.1 guarda la data necesaria dentro de cada objeto 'pieza'
-                            // mapeamos esos datos para el registro de producción
-                            batch.set(ref, {
-                                codigo_paquete: pieza.codigoUnico, // ID único de la pieza
-                                modelo: scannedData.modelo,
-                                partida: scannedData.partida,
-                                tejedor: "Balta", // HARDCODED
-                                fecha: now,
-                                fecha_scan: now,
-                                orderId: pieza.orderId, // Viene directo del kit maker
-                                paquete_indice: pieza.paqueteNum,
-                                paquete_total: 'KIT', // Indicativo de que vino en grupo
-                                cantidad_prendas: pieza.cantidad, // La cantidad de prendas en ese paquete
-                                maquina: pieza.maquinaOriginal || '??',
-                                kitId: scannedData.id,
-                                finished: false
-                            });
-                        });
+                    const batch = db.batch();
+                    const now = new Date().toISOString();
+                    const items = scannedData.type === 'KIT' ? scannedData.piezas : scannedData.piezas || [{ codigoUnico: scannedData.id, orderId: scannedData.orderId, paqueteNum: scannedData.paqueteIndice, maquina: scannedData.maquina }];
 
-                    } else if (scannedData.type === 'PIEZA') {
-                        // Pieza individual (Lógica anterior)
+                    items.forEach(p => {
                         const ref = db.collection('registro_produccion').doc();
                         batch.set(ref, {
-                            codigo_paquete: scannedData.id,
+                            codigo_paquete: p.codigoUnico || scannedData.id,
                             modelo: scannedData.modelo,
                             partida: scannedData.partida,
                             tejedor: "Balta",
                             fecha: now,
                             fecha_scan: now,
-                            orderId: scannedData.orderId,
-                            paquete_indice: scannedData.paqueteIndice,
-                            paquete_total: scannedData.paqueteTotal,
-                            maquina: scannedData.maquina || '??',
+                            orderId: p.orderId || scannedData.orderId,
+                            paquete_indice: p.paqueteNum || scannedData.paqueteIndice,
+                            paquete_total: scannedData.type === 'KIT' ? 'KIT' : scannedData.paqueteTotal,
+                            cantidad_prendas: p.cantidad || 1,
+                            maquina: p.maquinaOriginal || p.maquina || '??',
+                            kitId: scannedData.type === 'KIT' ? scannedData.id : null,
                             finished: false
                         });
-                    }
+                    });
 
                     await batch.commit();
-                    setStatus("¡TAGGEADO EXITOSAMENTE!");
+                    
+                    // EFECTO DE SONIDO: SIRENA
+                    SOUND_SIREN.currentTime = 0;
+                    SOUND_SIREN.play().catch(e => console.log("Error audio siren", e));
+
+                    setStatus("¡TAGGEADO!");
                     setStatusColor("text-green-400 neon-text");
                     setTimeout(() => {
                         setScannedData(null);
-                        setStatus("LISTO PARA EL SIGUIENTE");
+                        setStatus("LISTO");
                         setStatusColor("text-gray-400");
-                        setScanning(true); // Auto reinicio
+                        setScanning(true);
                     }, 2000);
-
-                } catch (e) {
-                    console.error(e);
-                    setStatus("FALLO AL RAYAR (ERROR DB)");
-                    setStatusColor("text-red-500");
-                }
-            };
-
-            const cancelScan = () => {
-                setScannedData(null);
-                setStatus("CANCELADO");
-                setTimeout(() => {
-                    setStatus("LISTO");
-                    setScanning(false);
-                }, 1000);
+                } catch (e) { setStatus("FALLO AL RAYAR"); setStatusColor("text-red-500"); }
             };
 
             return (
-                <div className="flex flex-col h-screen w-full relative max-w-md mx-auto border-x-2 border-zinc-800 bg-black/50 backdrop-blur-sm shadow-2xl">
+                <div className="flex flex-col h-screen w-full relative max-w-md mx-auto bg-black/50 backdrop-blur-sm text-white font-mono">
+                    <button onClick={onExit} className="absolute top-4 left-4 z-50 bg-zinc-800 text-xs px-2 py-1 border border-zinc-600 font-bold hover:bg-zinc-700">SALIR</button>
                     
-                    {/* Header Urbano */}
-                    <div className="p-6 text-center relative">
+                    <div className="p-6 text-center relative mt-4">
                         <h1 className="text-5xl font-graffiti text-white -rotate-2 neon-text glitch-effect" data-text="BALTA SCAN">BALTA SCAN</h1>
-                        <div className="absolute top-4 right-4 text-yellow-400 animate-pulse">
-                            <Icon name="zap" size={24} />
-                        </div>
-                        <p className="font-stencil text-zinc-500 text-sm mt-2 tracking-[0.3em]">PRODUCCIÓN URBAN v2.1</p>
+                        <p className="font-stencil text-zinc-500 text-sm mt-2 tracking-[0.3em]">URBAN EDITION</p>
                     </div>
 
-                    {/* Área Principal */}
                     <div className="flex-1 px-4 flex flex-col justify-center items-center">
-                        
-                        {/* Monitor de Estado */}
                         <div className="w-full bg-black border-2 border-zinc-700 p-2 mb-4 rounded-sm">
-                            <p className={`text-center font-mono font-bold text-xs ${statusColor} animate-pulse`}>
-                                {">"} {status}
-                            </p>
+                            <p className={`text-center font-mono font-bold text-xs ${statusColor} animate-pulse`}>{">"} {status}</p>
                         </div>
 
                         {!scanning && !scannedData && (
-                            <div className="flex flex-col items-center">
-                                <button 
-                                    onClick={() => setScanning(true)}
-                                    className="group relative w-48 h-48 rounded-full bg-zinc-900 border-4 border-dashed border-zinc-600 flex flex-col items-center justify-center hover:border-pink-500 transition-all duration-300 active:scale-95"
-                                >
-                                    <div className="absolute inset-0 rounded-full bg-pink-600 opacity-0 group-hover:opacity-20 transition-opacity blur-xl"></div>
-                                    <Icon name="scan" size={48} className="text-zinc-400 group-hover:text-pink-500 mb-2 transition-colors" />
-                                    <span className="font-graffiti text-2xl text-zinc-300 group-hover:text-white rotate-[-5deg]">RAYAR MURO</span>
-                                    <span className="text-[10px] text-zinc-500 mt-1 font-bold">(ESCANEAR)</span>
-                                </button>
-                            </div>
+                            <button onClick={() => setScanning(true)} className="group relative w-48 h-48 rounded-full bg-zinc-900 border-4 border-dashed border-zinc-600 flex flex-col items-center justify-center hover:border-pink-500 transition-all duration-300 active:scale-95">
+                                <div className="absolute inset-0 rounded-full bg-pink-600 opacity-0 group-hover:opacity-20 transition-opacity blur-xl"></div>
+                                <Icon name="scan" size={48} className="text-zinc-400 group-hover:text-pink-500 mb-2" />
+                                <span className="font-graffiti text-2xl text-zinc-300 group-hover:text-white rotate-[-5deg]">RAYAR</span>
+                            </button>
                         )}
 
                         {scanning && (
                             <div className="w-full relative bg-black p-2 border-2 border-pink-500 rounded-xl shadow-[0_0_20px_rgba(236,72,153,0.3)]">
-                                <div id="reader" className="w-full h-64 grayscale contrast-125 brightness-90"></div>
+                                <div id="reader-urb" className="w-full h-64 grayscale contrast-125 brightness-90 rounded overflow-hidden"></div>
                                 <div className="absolute top-0 left-0 w-full h-1 bg-pink-500 shadow-[0_0_10px_#ec4899] animate-[scanLine_2s_infinite]"></div>
-                                <button onClick={() => setScanning(false)} className="mt-2 w-full bg-zinc-800 text-zinc-400 font-bold py-2 rounded uppercase text-xs hover:bg-zinc-700">Cancelar Cámara</button>
+                                <button onClick={() => setScanning(false)} className="mt-2 w-full bg-zinc-800 text-zinc-400 font-bold py-2 rounded uppercase text-xs">Cancelar</button>
                             </div>
                         )}
 
                         {scannedData && (
-                            <div className="w-full bg-zinc-900 border-l-4 border-yellow-400 p-4 rounded-r-lg shadow-xl spray-enter relative overflow-hidden">
-                                {/* Textura de fondo sutil */}
+                            <div className="w-full bg-zinc-900 border-l-4 border-yellow-400 p-4 rounded-r-lg shadow-xl relative overflow-hidden">
                                 <div className="absolute inset-0 opacity-10 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
-                                
                                 <div className="relative z-10">
                                     <div className="flex justify-between items-start border-b border-zinc-700 pb-2 mb-2">
                                         <div>
@@ -364,60 +405,68 @@
                                             <div className="text-xl font-graffiti text-pink-500">{scannedData.partida}</div>
                                         </div>
                                     </div>
-
-                                    <div className="grid grid-cols-2 gap-4 mb-4">
-                                        <div className="bg-black/50 p-2 rounded border border-zinc-700">
-                                            <div className="text-[10px] text-zinc-500 uppercase">Tejedor Asignado</div>
-                                            <div className="font-bold text-green-400 text-lg flex items-center gap-1">
-                                                <Icon name="user" size={14}/> BALTA
-                                            </div>
-                                        </div>
-                                        <div className="bg-black/50 p-2 rounded border border-zinc-700">
-                                            <div className="text-[10px] text-zinc-500 uppercase">Paquetes</div>
-                                            <div className="font-bold text-white text-lg">
-                                                {scannedData.cantidad} <span className="text-xs font-normal text-zinc-400">Pqts</span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    
-                                    {scannedData.type === 'KIT' && (
-                                        <div className="text-center mb-2">
-                                             <span className="text-xs text-yellow-500 font-bold border border-yellow-500/30 px-2 py-1 rounded">TALLA: {scannedData.talla}</span>
-                                        </div>
-                                    )}
-
-                                    <div className="text-[10px] font-mono text-zinc-500 text-center mb-4 truncate">
-                                        ID: {scannedData.id}
-                                    </div>
-
                                     <div className="flex gap-2">
-                                        <button onClick={cancelScan} className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 font-bold py-3 rounded-sm border-b-4 border-zinc-950 active:border-b-0 active:mt-1">
-                                            BORRAR
-                                        </button>
-                                        <button onClick={confirmRegister} className="flex-[2] bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white font-black py-3 rounded-sm border-b-4 border-green-900 active:border-b-0 active:mt-1 shadow-[0_0_15px_rgba(34,197,94,0.4)] flex items-center justify-center gap-2">
-                                            <Icon name="spray-can" size={18} /> TAGGEAR (CONFIRMAR)
+                                        <button onClick={() => setScannedData(null)} className="flex-1 bg-zinc-800 text-zinc-400 font-bold py-3 rounded-sm border-b-4 border-zinc-950">BORRAR</button>
+                                        <button onClick={confirmRegister} className="flex-[2] bg-gradient-to-r from-green-600 to-emerald-600 text-white font-black py-3 rounded-sm border-b-4 border-green-900 shadow-[0_0_15px_rgba(34,197,94,0.4)] flex items-center justify-center gap-2">
+                                            <Icon name="spray-can" size={18} /> TAGGEAR
                                         </button>
                                     </div>
                                 </div>
                             </div>
                         )}
                     </div>
+                    <style>{`@keyframes scanLine { 0% { top: 0%; opacity: 0; } 10% { opacity: 1; } 90% { opacity: 1; } 100% { top: 100%; opacity: 0; } }`}</style>
+                </div>
+            );
+        };
 
-                    {/* Footer */}
-                    <div className="p-4 text-center">
-                        <div className="text-[10px] text-zinc-600 font-stencil tracking-widest">
-                            SISTEMA CIRINEO // URBN OPS
+        // ==========================================
+        // APP PRINCIPAL (CONTENEDOR)
+        // ==========================================
+        const App = () => {
+            const [view, setView] = useState('menu'); // 'menu', 'standard', 'urban'
+
+            // Control del Fondo Global
+            useEffect(() => {
+                if (view === 'urban') {
+                    document.body.style.background = "#1a1a1a";
+                    document.body.style.backgroundImage = "linear-gradient(rgba(0,0,0,0.85), rgba(0,0,0,0.85)), url('https://img.freepik.com/free-photo/black-brick-wall-texture-background_53876-14329.jpg')";
+                    document.body.style.backgroundSize = "cover";
+                    document.body.style.backgroundAttachment = "fixed";
+                } else {
+                    // Fondo para Menu y Standard
+                    document.body.style.background = "#020617";
+                    document.body.style.backgroundImage = "none";
+                }
+            }, [view]);
+
+            if (view === 'standard') return <StandardMode onExit={() => setView('menu')} />;
+            if (view === 'urban') return <UrbanMode onExit={() => setView('menu')} />;
+
+            // VISTA MENÚ DIVIDIDO
+            return (
+                <div className="split-container font-sans">
+                    {/* MITAD STANDARD */}
+                    <div className="split-section bg-[#020617] relative border-b-4 md:border-b-0 md:border-r-4 border-white/10" onClick={() => setView('standard')}>
+                        <div className="text-center p-6">
+                            <img src="https://raw.githubusercontent.com/jesusvn1993mplvt3-ai/Planificador/refs/heads/main/Balta.png" className="w-24 h-24 rounded-full mx-auto mb-4 border-2 border-blue-500 shadow-lg shadow-blue-500/20" />
+                            <h2 className="text-2xl font-black italic text-blue-500 mb-1">STANDARD V12</h2>
+                            <p className="text-slate-400 text-xs tracking-widest uppercase">Escaner de Barras Clásico</p>
                         </div>
                     </div>
-                    
-                    <style>{`
-                        @keyframes scanLine {
-                            0% { top: 0%; opacity: 0; }
-                            10% { opacity: 1; }
-                            90% { opacity: 1; }
-                            100% { top: 100%; opacity: 0; }
-                        }
-                    `}</style>
+
+                    {/* MITAD URBAN */}
+                    <div className="split-section relative" onClick={() => setView('urban')}>
+                        {/* Fondo específico para la previsualización del botón */}
+                        <div className="absolute inset-0 z-0 bg-cover bg-center grayscale opacity-30 hover:grayscale-0 hover:opacity-50 transition-all duration-500" style={{backgroundImage: "url('https://img.freepik.com/free-photo/black-brick-wall-texture-background_53876-14329.jpg')"}}></div>
+                        
+                        <div className="relative z-10 text-center p-6">
+                            <h2 className="text-4xl font-graffiti text-pink-500 neon-text -rotate-3 mb-2">URBAN OPS</h2>
+                            <div className="inline-block bg-black/80 px-3 py-1 border border-yellow-400 transform rotate-2">
+                                <p className="text-yellow-400 font-stencil text-xs tracking-widest">EDICIÓN GRAFFITI</p>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             );
         };
