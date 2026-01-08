@@ -37,10 +37,7 @@
         .neon-text {
             text-shadow: 0 0 5px #fff, 0 0 10px #fff, 0 0 20px #ff00de, 0 0 30px #ff00de, 0 0 40px #ff00de;
         }
-        .neon-border {
-            box-shadow: 0 0 5px #fff, 0 0 10px #fff, 0 0 20px #00ff00, 0 0 30px #00ff00;
-        }
-
+        
         /* Animaciones */
         .spray-enter { animation: sprayIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
         @keyframes sprayIn { 
@@ -48,9 +45,7 @@
             to { opacity: 1; transform: scale(1) rotate(0deg); } 
         }
 
-        .glitch-effect {
-            position: relative;
-        }
+        .glitch-effect { position: relative; }
         .glitch-effect::before {
             content: attr(data-text);
             position: absolute;
@@ -122,7 +117,7 @@
                                 processCode(decodedText);
                             });
                         },
-                        (errorMessage) => { /* ignorar errores de frame */ }
+                        (errorMessage) => { /* ignorar errores */ }
                     ).catch(err => {
                         console.error(err);
                         setScanning(false);
@@ -141,12 +136,10 @@
                 setStatusColor("text-yellow-400");
                 
                 try {
-                    // 1. Verificamos si es un KIT (Empieza con K o existe en kits_produccion)
-                    // Intentamos buscarlo en Kits primero
+                    // --- ESTRATEGIA: Buscar primero como KIT ---
                     let kitDoc = null;
                     let isKit = false;
 
-                    // Si parece ID de kit o simplemente buscamos directo
                     const kitRef = db.collection('kits_produccion').doc(code);
                     const kitSnap = await kitRef.get();
 
@@ -156,29 +149,34 @@
                     }
 
                     if (isKit) {
-                        // Es un Kit: Preparamos los datos de todas las piezas
+                        // --- LÓGICA DE HERENCIA DE MÁQUINA ---
+                        // 1. Buscamos máquina en el documento raíz del Kit
+                        // 2. Si no, buscamos en la primera pieza
+                        // 3. Si no, asumimos '0'
+                        const maquinaHeredada = kitDoc.maquina || (kitDoc.piezas && kitDoc.piezas[0]?.maquina) || '0';
+
+                        // Inyectamos la máquina a cada pieza si les falta
+                        const piezasCorregidas = kitDoc.piezas.map(p => ({
+                            ...p,
+                            maquina: p.maquina || maquinaHeredada // AQUÍ ESTÁ EL FIX
+                        }));
+
                         setScannedData({
                             type: 'KIT',
                             id: code,
                             modelo: kitDoc.modelo,
                             partida: kitDoc.partida,
                             cantidad: kitDoc.piezas.length,
-                            piezas: kitDoc.piezas, // Array de piezas
-                            displayMaq: kitDoc.piezas[0]?.maquina || 'Multi'
+                            piezas: piezasCorregidas,
+                            displayMaq: maquinaHeredada // Para mostrar en pantalla
                         });
                         setStatus("¡KIT ENCONTRADO!");
                         setStatusColor("text-green-400");
                     } else {
-                        // NO es un kit, puede ser una pieza individual
-                        // Buscamos la Orden para sacar datos
-                        // Nota: Aquí asumimos que el código escaneado es el 'codigoUnico' de la pieza
-                        // Pero para sacar el modelo, necesitamos buscar en Orders qué orden contiene este código
-                        
+                        // --- ESTRATEGIA: Pieza Individual ---
                         let foundOrder = null;
                         let foundPiece = null;
 
-                        // Esta búsqueda es pesada, pero necesaria si solo tenemos el código único
-                        // Optimización: Si tienes el modelo en el QR sería mejor, pero asumimos solo ID único
                         const ordersSnap = await db.collection('orders').where('status', '!=', 'ARCHIVADO').get();
                         
                         for (let doc of ordersSnap.docs) {
@@ -194,6 +192,9 @@
                         }
 
                         if (foundOrder && foundPiece) {
+                            // Fix Maquina Individual
+                            const maqReal = foundPiece.maquina || '0';
+
                             setScannedData({
                                 type: 'PIEZA',
                                 id: code,
@@ -201,22 +202,16 @@
                                 partida: foundOrder.partida,
                                 cantidad: 1,
                                 orderId: foundOrder.id,
-                                maquina: foundPiece.maquina,
+                                maquina: maqReal,
+                                displayMaq: maqReal,
                                 paqueteIndice: foundPiece.paqueteNum,
                                 paqueteTotal: foundOrder.totalPedido || '?',
-                                piezas: [foundPiece] // Lo tratamos como array de 1 para estandarizar
+                                piezas: [foundPiece]
                             });
                             setStatus("PIEZA ÚNICA DETECTADA");
                             setStatusColor("text-blue-400");
                         } else {
-                            // No encontrado
-                            setScannedData({
-                                type: 'UNKNOWN',
-                                id: code,
-                                modelo: 'DESCONOCIDO',
-                                partida: '?',
-                                cantidad: 0
-                            });
+                            setScannedData({ type: 'UNKNOWN', id: code, modelo: 'DESCONOCIDO', partida: '?', cantidad: 0 });
                             setStatus("CÓDIGO NO RECONOCIDO");
                             setStatusColor("text-red-500");
                         }
@@ -239,61 +234,46 @@
                 const now = new Date().toISOString();
 
                 try {
-                    // Si es KIT, guardamos cada pieza individualmente
-                    if (scannedData.type === 'KIT') {
-                        // Necesitamos buscar el orderId para el kit si no viene en el kit
-                        // Usualmente buscaremos por modelo y partida
+                    // Datos auxiliares si faltan
+                    let orderId = scannedData.orderId;
+                    let totalPedido = scannedData.paqueteTotal;
+
+                    // Si es KIT y nos faltan datos de orden, los buscamos rápido
+                    if (scannedData.type === 'KIT' && !orderId) {
                         const orderQuery = await db.collection('orders')
                             .where('codigo', '==', scannedData.modelo)
                             .where('partida', '==', scannedData.partida)
                             .limit(1)
                             .get();
                         
-                        let orderId = null;
-                        let totalPedido = '?';
-                        let cliente = 'S/C';
-
                         if (!orderQuery.empty) {
                             orderId = orderQuery.docs[0].id;
                             totalPedido = orderQuery.docs[0].data().totalPedido;
-                            cliente = orderQuery.docs[0].data().cliente;
                         }
+                    }
 
-                        scannedData.piezas.forEach(pieza => {
-                            const ref = db.collection('registro_produccion').doc(); // Auto ID
-                            batch.set(ref, {
-                                codigo_paquete: pieza.codigoUnico, // CRÍTICO PARA CONSOLIDADOR
-                                modelo: scannedData.modelo,
-                                partida: scannedData.partida,
-                                tejedor: "Balta", // HARDCODED
-                                fecha: now,
-                                fecha_scan: now,
-                                orderId: orderId, // CRÍTICO
-                                paquete_indice: pieza.paqueteNum, // CRÍTICO
-                                paquete_total: pieza.paquetesDePieza || totalPedido,
-                                maquina: pieza.maquina || '??',
-                                kitId: scannedData.id,
-                                finished: false
-                            });
-                        });
-
-                    } else if (scannedData.type === 'PIEZA') {
-                        // Pieza individual
+                    scannedData.piezas.forEach(pieza => {
                         const ref = db.collection('registro_produccion').doc();
+                        
+                        // --- EL FIX FINAL DE MÁQUINA ---
+                        // Aseguramos que nunca vaya undefined
+                        const maquinaFinal = pieza.maquina || scannedData.displayMaq || '0';
+
                         batch.set(ref, {
-                            codigo_paquete: scannedData.id,
+                            codigo_paquete: pieza.codigoUnico,
                             modelo: scannedData.modelo,
                             partida: scannedData.partida,
-                            tejedor: "Balta",
+                            tejedor: "Balta", // El usuario pidió esto fijo
                             fecha: now,
                             fecha_scan: now,
-                            orderId: scannedData.orderId,
-                            paquete_indice: scannedData.paqueteIndice,
-                            paquete_total: scannedData.paqueteTotal,
-                            maquina: scannedData.maquina || '??',
+                            orderId: orderId || 'SN',
+                            paquete_indice: pieza.paqueteNum,
+                            paquete_total: pieza.paquetesDePieza || totalPedido || '?',
+                            maquina: maquinaFinal, // Ya corregido
+                            kitId: scannedData.type === 'KIT' ? scannedData.id : null,
                             finished: false
                         });
-                    }
+                    });
 
                     await batch.commit();
                     setStatus("¡TAGGEADO EXITOSAMENTE!");
@@ -302,7 +282,7 @@
                         setScannedData(null);
                         setStatus("LISTO PARA EL SIGUIENTE");
                         setStatusColor("text-gray-400");
-                        setScanning(true); // Auto reinicio opcional
+                        setScanning(true);
                     }, 2000);
 
                 } catch (e) {
@@ -315,10 +295,7 @@
             const cancelScan = () => {
                 setScannedData(null);
                 setStatus("CANCELADO");
-                setTimeout(() => {
-                    setStatus("LISTO");
-                    setScanning(false);
-                }, 1000);
+                setTimeout(() => { setStatus("LISTO"); setScanning(false); }, 1000);
             };
 
             return (
@@ -327,10 +304,8 @@
                     {/* Header Urbano */}
                     <div className="p-6 text-center relative">
                         <h1 className="text-5xl font-graffiti text-white -rotate-2 neon-text glitch-effect" data-text="BALTA SCAN">BALTA SCAN</h1>
-                        <div className="absolute top-4 right-4 text-yellow-400 animate-pulse">
-                            <Icon name="zap" size={24} />
-                        </div>
-                        <p className="font-stencil text-zinc-500 text-sm mt-2 tracking-[0.3em]">PRODUCCIÓN URBAN v2.0</p>
+                        <div className="absolute top-4 right-4 text-yellow-400 animate-pulse"><Icon name="zap" size={24} /></div>
+                        <p className="font-stencil text-zinc-500 text-sm mt-2 tracking-[0.3em]">PRODUCCIÓN URBAN v2.1</p>
                     </div>
 
                     {/* Área Principal */}
@@ -338,17 +313,12 @@
                         
                         {/* Monitor de Estado */}
                         <div className="w-full bg-black border-2 border-zinc-700 p-2 mb-4 rounded-sm">
-                            <p className={`text-center font-mono font-bold text-xs ${statusColor} animate-pulse`}>
-                                {">"} {status}
-                            </p>
+                            <p className={`text-center font-mono font-bold text-xs ${statusColor} animate-pulse`}>{">"} {status}</p>
                         </div>
 
                         {!scanning && !scannedData && (
                             <div className="flex flex-col items-center">
-                                <button 
-                                    onClick={() => setScanning(true)}
-                                    className="group relative w-48 h-48 rounded-full bg-zinc-900 border-4 border-dashed border-zinc-600 flex flex-col items-center justify-center hover:border-pink-500 transition-all duration-300 active:scale-95"
-                                >
+                                <button onClick={() => setScanning(true)} className="group relative w-48 h-48 rounded-full bg-zinc-900 border-4 border-dashed border-zinc-600 flex flex-col items-center justify-center hover:border-pink-500 transition-all duration-300 active:scale-95">
                                     <div className="absolute inset-0 rounded-full bg-pink-600 opacity-0 group-hover:opacity-20 transition-opacity blur-xl"></div>
                                     <Icon name="scan" size={48} className="text-zinc-400 group-hover:text-pink-500 mb-2 transition-colors" />
                                     <span className="font-graffiti text-2xl text-zinc-300 group-hover:text-white rotate-[-5deg]">RAYAR MURO</span>
@@ -367,7 +337,6 @@
 
                         {scannedData && (
                             <div className="w-full bg-zinc-900 border-l-4 border-yellow-400 p-4 rounded-r-lg shadow-xl spray-enter relative overflow-hidden">
-                                {/* Textura de fondo sutil */}
                                 <div className="absolute inset-0 opacity-10 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
                                 
                                 <div className="relative z-10">
@@ -385,10 +354,11 @@
                                     </div>
 
                                     <div className="grid grid-cols-2 gap-4 mb-4">
+                                        {/* VISUALIZADOR DE MÁQUINA */}
                                         <div className="bg-black/50 p-2 rounded border border-zinc-700">
-                                            <div className="text-[10px] text-zinc-500 uppercase">Tejedor Asignado</div>
-                                            <div className="font-bold text-green-400 text-lg flex items-center gap-1">
-                                                <Icon name="user" size={14}/> BALTA
+                                            <div className="text-[10px] text-zinc-500 uppercase">Máquina</div>
+                                            <div className="font-bold text-yellow-400 text-2xl flex items-center gap-1 font-stencil">
+                                                MAQ {scannedData.displayMaq}
                                             </div>
                                         </div>
                                         <div className="bg-black/50 p-2 rounded border border-zinc-700">
@@ -408,7 +378,7 @@
                                             BORRAR
                                         </button>
                                         <button onClick={confirmRegister} className="flex-[2] bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white font-black py-3 rounded-sm border-b-4 border-green-900 active:border-b-0 active:mt-1 shadow-[0_0_15px_rgba(34,197,94,0.4)] flex items-center justify-center gap-2">
-                                            <Icon name="spray-can" size={18} /> TAGGEAR (CONFIRMAR)
+                                            <Icon name="spray-can" size={18} /> TAGGEAR
                                         </button>
                                     </div>
                                 </div>
@@ -418,9 +388,7 @@
 
                     {/* Footer */}
                     <div className="p-4 text-center">
-                        <div className="text-[10px] text-zinc-600 font-stencil tracking-widest">
-                            SISTEMA CIRINEO // URBN OPS
-                        </div>
+                        <div className="text-[10px] text-zinc-600 font-stencil tracking-widest">SISTEMA CIRINEO // URBN OPS</div>
                     </div>
                     
                     <style>{`
