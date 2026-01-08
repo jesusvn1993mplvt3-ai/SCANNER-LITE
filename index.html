@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Balta Scan v18 - Intelligent Distributor</title>
+    <title>Balta Scan v17 (Conexión Agrupador)</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
@@ -12,6 +12,7 @@
     <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.0/dist/JsBarcode.all.min.js"></script>
+
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
 
@@ -20,18 +21,13 @@
     <style>
         body { margin: 0; background: #020617; font-family: 'Roboto Condensed', sans-serif; color: white; overflow: hidden; }
         #reader { width: 100% !important; border: none !important; }
-        #reader video { object-fit: cover !important; width: 100% !important; height: 250px !important; border-radius: 20px; }
-        .scan-container { border: 4px solid #3b82f6; border-radius: 24px; overflow: hidden; background: #000; position: relative; }
-        .overlay-wait { position: absolute; inset: 0; background: rgba(2, 6, 23, 0.9); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 50; }
-        
-        .machine-selector { display: grid; grid-template-cols: repeat(4, 1fr); gap: 5px; margin-bottom: 10px; }
-        .m-btn { padding: 10px 5px; background: #1e293b; border-radius: 8px; font-weight: 900; font-size: 14px; text-align: center; border: 2px solid transparent; }
-        .m-btn.active { background: #3b82f6; border-color: white; color: white; }
-
-        .label-mini { background: white; color: black; border-radius: 8px; padding: 10px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; border-left: 6px solid #fbbf24; }
-        .scroll-area { max-height: 40vh; overflow-y: auto; padding-right: 5px; }
-        .scroll-area::-webkit-scrollbar { width: 4px; }
-        .scroll-area::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        #reader video { object-fit: cover !important; width: 100% !important; height: 300px !important; border-radius: 24px; }
+        .machine-grid { display: grid; grid-template-cols: repeat(4, 1fr); gap: 6px; }
+        .m-btn { background: #1e293b; padding: 12px 5px; border-radius: 12px; font-weight: 900; border: 2px solid transparent; transition: all 0.2s; }
+        .m-btn.active { background: #3b82f6; border-color: white; transform: scale(0.95); }
+        .label-mini { background: white; color: black; border-radius: 10px; padding: 10px; margin-bottom: 8px; border-left: 6px solid #3b82f6; }
+        .custom-scroll::-webkit-scrollbar { width: 4px; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
     </style>
 </head>
 <body>
@@ -43,134 +39,162 @@
         if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
         const db = firebase.firestore();
 
+        const Icon = ({ name, size = 20 }) => {
+            const ref = useRef(null);
+            useEffect(() => { if (lucide.icons[name]) { ref.current.innerHTML = lucide.icons[name].toSvg({ width: size, height: size }); } }, [name, size]);
+            return <span ref={ref} className="inline-block" />;
+        };
+
         const App = () => {
-            const [active, setActive] = useState(false);
-            const [pending, setPending] = useState(null);
             const [selectedMachine, setSelectedMachine] = useState(null);
-            const [wait, setWait] = useState(0);
+            const [pending, setPending] = useState(null);
+            const [allOrders, setAllOrders] = useState([]);
             const [machines, setMachines] = useState([]);
+            const [scannerActive, setScannerActive] = useState(false);
             const html5QrCode = useRef(null);
+            const lastScan = useRef(null);
 
             useEffect(() => {
-                // Generamos lista de máquinas 1-12 por defecto
+                // Cargar máquinas (1-12 por defecto o desde BD)
                 setMachines(Array.from({length: 12}, (_, i) => ({ id: `${i+1}`, name: `${i+1}` })));
+                return db.collection('orders').onSnapshot(snap => {
+                    setAllOrders(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+                });
             }, []);
 
-            const startCamera = () => {
+            const startScanner = () => {
                 const scanner = new Html5Qrcode("reader");
                 html5QrCode.current = scanner;
-                scanner.start({ facingMode: "environment" }, { fps: 20, qrbox: 250 }, (text) => {
-                    if (!pending && wait === 0) handleRead(text.trim().toUpperCase());
-                }).catch(err => console.error(err));
+                scanner.start({ facingMode: "environment" }, { fps: 20, qrbox: 250 }, 
+                    (text) => handleScan(text.trim().toUpperCase())
+                );
+                setScannerActive(true);
             };
 
-            const handleRead = async (code) => {
+            const handleScan = async (code) => {
+                if (lastScan.current === code || pending) return;
+                lastScan.current = code;
+                new Audio('https://www.soundjay.com/button/beep-07.mp3').play().catch(() => {});
+
                 if (!selectedMachine) {
-                    alert("⚠️ SELECCIONA UNA MÁQUINA PRIMERO");
+                    alert("⚠️ SELECCIONA UNA MÁQUINA");
+                    lastScan.current = null;
                     return;
                 }
 
+                // SI ES UN KIT DEL AGRUPADOR
                 if (code.startsWith('K')) {
-                    const doc = await db.collection('kits_produccion').doc(code).get();
+                    const doc = await db.collection('kits_datos').doc(code).get();
                     if (doc.exists) {
-                        const data = doc.data();
-                        setPending({ type: 'KIT', id: code, data: data, pieces: data.piezas });
-                    } else alert("❌ Kit no encontrado en BD");
-                } else {
-                    // Buscar pieza individual en órdenes
-                    const snap = await db.collection('orders').get();
+                        const kit = doc.data();
+                        setPending({
+                            type: 'kit',
+                            id: code,
+                            data: kit,
+                            piezas: kit.piezas.map(p => ({ ...p, modelo: kit.modelo, partida: kit.partida }))
+                        });
+                    } else alert("❌ Kit no encontrado");
+                } 
+                // SI ES PAPELETA INDIVIDUAL
+                else {
                     let found = null;
-                    snap.forEach(doc => {
-                        const p = doc.data().progreso?.find(item => item.codigoUnico === code);
-                        if(p) found = { ...p, orderId: doc.id, modelo: doc.data().codigo, partida: doc.data().partida };
+                    allOrders.forEach(order => {
+                        const p = order.progreso?.find(i => i.codigoUnico === code);
+                        if (p) found = { ...p, orderId: order.id, modelo: order.codigo, partida: order.partida };
                     });
-                    if (found) setPending({ type: 'INDV', id: code, data: found, pieces: [found] });
-                    else alert("❌ Código no reconocido");
+
+                    if (found) {
+                        setPending({ type: 'single', id: code, data: found, piezas: [found] });
+                    } else alert("❌ Código no reconocido");
                 }
             };
 
             const confirmUpload = async () => {
+                if (!pending || !selectedMachine) return;
                 const batch = db.batch();
-                const now = firebase.firestore.FieldValue.serverTimestamp();
-                
+                const timestamp = firebase.firestore.FieldValue.serverTimestamp();
+
                 try {
-                    pending.pieces.forEach(p => {
-                        const ref = db.collection('registro_produccion').doc();
+                    pending.piezas.forEach(p => {
+                        const ref = db.collection('production_scans').doc();
                         batch.set(ref, {
-                            code: p.codigoUnico,
-                            modelo: pending.data.modelo,
-                            orderId: p.orderId,
-                            partida: pending.data.partida,
-                            paquete_indice: p.paqueteNum,
-                            tejedor: "Sistema Balta",
-                            fecha: now,
-                            // ASIGNACIÓN CORRECTA DE MÁQUINA
-                            maquina: selectedMachine.id, 
-                            kitId: pending.type === 'KIT' ? pending.id : null,
-                            finished: false
+                            codigoUnico: p.codigoUnico || pending.id,
+                            pedido: p.modelo || p.pedido || "",
+                            estilo: p.modelo || "",
+                            partida: p.partida || "",
+                            paqueteNum: p.paqueteNum || 0,
+                            piezaNombre: p.piezaNombre || "",
+                            cantidad: p.cantidad || 0,
+                            // ASIGNACIÓN A MÁQUINA
+                            machineId: selectedMachine.id,
+                            machineName: selectedMachine.name,
+                            scannedAt: timestamp,
+                            status: 'PENDIENTE'
                         });
                     });
+
                     await batch.commit();
                     setPending(null);
-                    setWait(3);
-                    new Audio('https://www.soundjay.com/button/beep-07.mp3').play().catch(() => {});
+                    lastScan.current = null;
+                    alert("✅ REGISTRADO EN MÁQUINA " + selectedMachine.name);
                 } catch (e) { alert("Error al guardar"); }
             };
 
-            useEffect(() => {
-                if (wait > 0) setTimeout(() => setWait(wait - 1), 1000);
-            }, [wait]);
-
             return (
-                <div className="p-4 h-screen bg-slate-950 flex flex-col">
-                    {!active ? (
-                        <div className="flex-1 flex flex-col items-center justify-center gap-6">
-                            <h1 className="text-3xl font-black text-blue-500 italic">BALTA SCAN v18</h1>
-                            <button onClick={() => { setActive(true); setTimeout(startCamera, 100); }} className="w-full bg-blue-600 py-10 rounded-3xl font-black text-2xl">INICIAR ESCÁNER</button>
+                <div className="flex flex-col h-screen p-4 max-w-md mx-auto">
+                    {!scannerActive ? (
+                        <div className="flex-1 flex flex-col items-center justify-center gap-8">
+                            <h1 className="text-4xl font-black italic text-blue-500 tracking-tighter">BALTA SCAN v17</h1>
+                            <button onClick={startScanner} className="w-full bg-blue-600 py-12 rounded-[40px] font-black text-2xl shadow-2xl shadow-blue-900/50">ABRIR CÁMARA</button>
                         </div>
                     ) : (
                         <div className="flex-1 flex flex-col min-h-0">
                             {/* Selector de Máquina */}
-                            <div className="machine-selector">
+                            <div className="machine-grid mb-4">
                                 {machines.map(m => (
                                     <button key={m.id} onClick={() => setSelectedMachine(m)} 
                                         className={`m-btn ${selectedMachine?.id === m.id ? 'active' : ''}`}>M{m.name}</button>
                                 ))}
                             </div>
 
-                            <div className={`scan-container ${pending ? 'h-32' : 'flex-1'}`}>
-                                <div id="reader" style={{height: '100%'}}></div>
-                                {wait > 0 && <div className="overlay-wait"><span className="text-6xl font-black">{wait}</span></div>}
+                            {/* Cámara / Preview */}
+                            <div className={`relative bg-black rounded-[32px] overflow-hidden transition-all duration-300 ${pending ? 'h-32 opacity-50' : 'flex-1'}`}>
+                                <div id="reader"></div>
+                                {!selectedMachine && <div className="absolute inset-0 bg-black/80 flex items-center justify-center p-6 text-center font-bold text-yellow-500">⚠️ SELECCIONA MÁQUINA ANTES DE ESCANEAR</div>}
                             </div>
 
+                            {/* Panel de Confirmación (Tu estética original) */}
                             {pending && (
-                                <div className="mt-4 flex-1 bg-slate-100 rounded-t-3xl p-6 text-slate-900 flex flex-col overflow-hidden">
-                                    <div className="flex justify-between items-center mb-4 border-b pb-2">
+                                <div className="mt-4 flex-1 bg-white rounded-t-[32px] p-6 text-slate-900 flex flex-col overflow-hidden animate-slide-up">
+                                    <div className="flex justify-between items-start mb-4 border-b pb-2">
                                         <div>
-                                            <p className="text-2xl font-black text-blue-800">{pending.id}</p>
-                                            <p className="text-xs font-bold text-slate-500 uppercase">{pending.data.modelo} - PARTIDA {pending.data.partida}</p>
+                                            <p className="text-3xl font-black text-blue-900 leading-none">{pending.id}</p>
+                                            <p className="text-sm font-bold text-slate-400 mt-1 uppercase">{pending.data.modelo} | PARTIDA {pending.data.partida}</p>
                                         </div>
-                                        <div className="text-right">
-                                            <p className="text-[10px] font-bold text-slate-400">DESTINO</p>
-                                            <p className="text-xl font-black text-blue-600">MAQ {selectedMachine.name}</p>
+                                        <div className="bg-blue-100 px-4 py-2 rounded-2xl text-center">
+                                            <p className="text-[10px] font-bold text-blue-400 uppercase leading-none">MÁQUINA</p>
+                                            <p className="text-2xl font-black text-blue-600">{selectedMachine.name}</p>
                                         </div>
                                     </div>
 
-                                    <div className="scroll-area flex-1">
-                                        {pending.pieces.map((p, i) => (
-                                            <div key={i} className="label-mini shadow-sm">
+                                    <div className="flex-1 overflow-y-auto custom-scroll pr-2">
+                                        {pending.piezas.map((p, i) => (
+                                            <div key={i} className="label-mini flex justify-between items-center shadow-sm">
                                                 <div>
-                                                    <p className="font-black text-lg leading-none">{p.piezaNombre?.split(' ')[0]}</p>
-                                                    <p className="text-[10px] font-bold text-slate-500">PAQ: {p.paqueteNum} | TALLA: {pending.data.talla}</p>
+                                                    <p className="font-black text-lg uppercase leading-none">{p.piezaNombre?.split(' ')[0]}</p>
+                                                    <p className="text-[10px] font-bold text-slate-400 uppercase mt-1">Paquete #{p.paqueteNum}</p>
                                                 </div>
-                                                <p className="text-2xl font-black text-yellow-500">{p.cantidad}</p>
+                                                <div className="text-right">
+                                                    <span className="text-3xl font-black text-blue-600 tracking-tighter">{p.cantidad}</span>
+                                                    <span className="text-[10px] font-black block leading-none">PZAS</span>
+                                                </div>
                                             </div>
                                         ))}
                                     </div>
 
-                                    <div className="grid grid-cols-2 gap-4 mt-4">
-                                        <button onClick={() => setPending(null)} className="bg-slate-300 py-4 rounded-2xl font-black text-slate-600">CANCELAR</button>
-                                        <button onClick={confirmUpload} className="bg-blue-600 py-4 rounded-2xl font-black text-white text-xl shadow-lg">CONFIRMAR</button>
+                                    <div className="grid grid-cols-2 gap-3 mt-4 pt-4 border-t">
+                                        <button onClick={() => {setPending(null); lastScan.current = null;}} className="bg-slate-100 py-4 rounded-2xl font-black text-slate-400 uppercase text-sm">CANCELAR</button>
+                                        <button onClick={confirmUpload} className="bg-blue-600 py-4 rounded-2xl font-black text-white text-xl uppercase tracking-tight shadow-xl shadow-blue-200">CONFIRMAR</button>
                                     </div>
                                 </div>
                             )}
@@ -179,6 +203,7 @@
                 </div>
             );
         };
+
         const root = ReactDOM.createRoot(document.getElementById('root'));
         root.render(<App />);
     </script>
