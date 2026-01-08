@@ -3,31 +3,64 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Balta Scan v17 (Conexión Agrupador)</title>
+    <title>Balta Scan - Urban Edition</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+    <script src="https://unpkg.com/html5-qrcode"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
-    <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.0/dist/JsBarcode.all.min.js"></script>
 
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
 
-    <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;700&family=Roboto+Condensed:wght@400;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Permanent+Marker&family=Black+Ops+One&family=Roboto+Mono:wght@700&display=swap" rel="stylesheet">
 
     <style>
-        body { margin: 0; background: #020617; font-family: 'Roboto Condensed', sans-serif; color: white; overflow: hidden; }
-        #reader { width: 100% !important; border: none !important; }
-        #reader video { object-fit: cover !important; width: 100% !important; height: 300px !important; border-radius: 24px; }
-        .machine-grid { display: grid; grid-template-cols: repeat(4, 1fr); gap: 6px; }
-        .m-btn { background: #1e293b; padding: 12px 5px; border-radius: 12px; font-weight: 900; border: 2px solid transparent; transition: all 0.2s; }
-        .m-btn.active { background: #3b82f6; border-color: white; transform: scale(0.95); }
-        .label-mini { background: white; color: black; border-radius: 10px; padding: 10px; margin-bottom: 8px; border-left: 6px solid #3b82f6; }
-        .custom-scroll::-webkit-scrollbar { width: 4px; }
-        .custom-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        body { 
+            background-color: #1a1a1a;
+            background-image: 
+                linear-gradient(rgba(0,0,0,0.8), rgba(0,0,0,0.8)),
+                url('https://www.transparenttextures.com/patterns/asfalt-dark.png');
+            font-family: 'Roboto Mono', monospace;
+            color: #fff;
+            overflow: hidden;
+        }
+        .font-graffiti { font-family: 'Permanent+Marker', cursive; }
+        .font-stencil { font-family: 'Black Ops One', system-ui; }
+        
+        .scan-overlay {
+            position: absolute;
+            inset: 0;
+            border: 2px solid #3b82f6;
+            box-shadow: inset 0 0 100px rgba(59, 130, 246, 0.2);
+            pointer-events: none;
+        }
+        .scan-line {
+            position: absolute;
+            width: 100%;
+            height: 2px;
+            background: #3b82f6;
+            box-shadow: 0 0 15px #3b82f6;
+            animation: scanLine 2s linear infinite;
+        }
+        #reader { border: none !important; width: 100% !important; }
+        #reader video { object-fit: cover !important; border-radius: 4px; }
+        #reader__dashboard { display: none !important; }
+
+        .tag-card {
+            background: #222;
+            border-left: 8px solid #3b82f6;
+            position: relative;
+            overflow: hidden;
+        }
+        .tag-card::before {
+            content: "";
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(255,255,255,0.02) 10px, rgba(255,255,255,0.02) 20px);
+        }
     </style>
 </head>
 <body>
@@ -39,50 +72,56 @@
         if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
         const db = firebase.firestore();
 
-        const Icon = ({ name, size = 20 }) => {
+        const Icon = ({ name, size = 20, className = "" }) => {
             const ref = useRef(null);
-            useEffect(() => { if (lucide.icons[name]) { ref.current.innerHTML = lucide.icons[name].toSvg({ width: size, height: size }); } }, [name, size]);
-            return <span ref={ref} className="inline-block" />;
+            useEffect(() => {
+                if (lucide.icons[name]) {
+                    ref.current.innerHTML = lucide.icons[name].toSvg({ width: size, height: size });
+                }
+            }, [name, size]);
+            return <span ref={ref} className={`inline-flex items-center justify-center ${className}`} />;
         };
 
         const App = () => {
             const [selectedMachine, setSelectedMachine] = useState(null);
             const [pending, setPending] = useState(null);
-            const [allOrders, setAllOrders] = useState([]);
-            const [machines, setMachines] = useState([]);
             const [scannerActive, setScannerActive] = useState(false);
-            const html5QrCode = useRef(null);
+            const [allOrders, setAllOrders] = useState([]);
             const lastScan = useRef(null);
+            const html5QrCode = useRef(null);
 
             useEffect(() => {
-                // Cargar máquinas (1-12 por defecto o desde BD)
-                setMachines(Array.from({length: 12}, (_, i) => ({ id: `${i+1}`, name: `${i+1}` })));
-                return db.collection('orders').onSnapshot(snap => {
+                const unsub = db.collection('orders').onSnapshot(snap => {
                     setAllOrders(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
                 });
+                return () => unsub();
             }, []);
 
-            const startScanner = () => {
+            const initScanner = () => {
+                if (html5QrCode.current) return;
                 const scanner = new Html5Qrcode("reader");
                 html5QrCode.current = scanner;
-                scanner.start({ facingMode: "environment" }, { fps: 20, qrbox: 250 }, 
-                    (text) => handleScan(text.trim().toUpperCase())
-                );
+                
+                const config = { fps: 15, qrbox: { width: 250, height: 250 } };
+                
+                scanner.start({ facingMode: "environment" }, config, (text) => {
+                    if (text !== lastScan.current) handleScan(text.trim().toUpperCase());
+                }).catch(err => console.error("Error cámara:", err));
+                
                 setScannerActive(true);
             };
 
             const handleScan = async (code) => {
-                if (lastScan.current === code || pending) return;
                 lastScan.current = code;
                 new Audio('https://www.soundjay.com/button/beep-07.mp3').play().catch(() => {});
 
                 if (!selectedMachine) {
-                    alert("⚠️ SELECCIONA UNA MÁQUINA");
+                    alert("⚠️ SELECCIONA MÁQUINA");
                     lastScan.current = null;
                     return;
                 }
 
-                // SI ES UN KIT DEL AGRUPADOR
+                // LÓGICA DE KIT (AGRUPADOR)
                 if (code.startsWith('K')) {
                     const doc = await db.collection('kits_datos').doc(code).get();
                     if (doc.exists) {
@@ -93,23 +132,21 @@
                             data: kit,
                             piezas: kit.piezas.map(p => ({ ...p, modelo: kit.modelo, partida: kit.partida }))
                         });
-                    } else alert("❌ Kit no encontrado");
+                    } else alert("❌ KIT NO ENCONTRADO EN BD");
                 } 
-                // SI ES PAPELETA INDIVIDUAL
+                // LÓGICA PAPELETA INDIVIDUAL
                 else {
                     let found = null;
                     allOrders.forEach(order => {
                         const p = order.progreso?.find(i => i.codigoUnico === code);
                         if (p) found = { ...p, orderId: order.id, modelo: order.codigo, partida: order.partida };
                     });
-
-                    if (found) {
-                        setPending({ type: 'single', id: code, data: found, piezas: [found] });
-                    } else alert("❌ Código no reconocido");
+                    if (found) setPending({ type: 'single', id: code, data: found, piezas: [found] });
+                    else alert("❌ CÓDIGO INVÁLIDO");
                 }
             };
 
-            const confirmUpload = async () => {
+            const confirmRegister = async () => {
                 if (!pending || !selectedMachine) return;
                 const batch = db.batch();
                 const timestamp = firebase.firestore.FieldValue.serverTimestamp();
@@ -125,9 +162,8 @@
                             paqueteNum: p.paqueteNum || 0,
                             piezaNombre: p.piezaNombre || "",
                             cantidad: p.cantidad || 0,
-                            // ASIGNACIÓN A MÁQUINA
-                            machineId: selectedMachine.id,
-                            machineName: selectedMachine.name,
+                            machineId: selectedMachine,
+                            machineName: selectedMachine,
                             scannedAt: timestamp,
                             status: 'PENDIENTE'
                         });
@@ -136,70 +172,97 @@
                     await batch.commit();
                     setPending(null);
                     lastScan.current = null;
-                    alert("✅ REGISTRADO EN MÁQUINA " + selectedMachine.name);
-                } catch (e) { alert("Error al guardar"); }
+                    alert("TAGS REGISTRADOS EN M" + selectedMachine);
+                } catch (e) { alert("ERROR AL GUARDAR"); }
             };
 
             return (
-                <div className="flex flex-col h-screen p-4 max-w-md mx-auto">
-                    {!scannerActive ? (
-                        <div className="flex-1 flex flex-col items-center justify-center gap-8">
-                            <h1 className="text-4xl font-black italic text-blue-500 tracking-tighter">BALTA SCAN v17</h1>
-                            <button onClick={startScanner} className="w-full bg-blue-600 py-12 rounded-[40px] font-black text-2xl shadow-2xl shadow-blue-900/50">ABRIR CÁMARA</button>
+                <div className="flex flex-col h-screen max-w-md mx-auto relative overflow-hidden">
+                    {/* Header Estética Original */}
+                    <div className="p-4 flex justify-between items-center border-b border-zinc-800 bg-black/40 backdrop-blur-md z-10">
+                        <div className="flex items-center gap-2">
+                            <div className="w-3 h-3 bg-blue-500 rounded-full animate-pulse shadow-[0_0_10px_#3b82f6]"></div>
+                            <span className="font-stencil text-xs tracking-tighter text-zinc-400">BALTA_SYSTEM_V4.0</span>
                         </div>
-                    ) : (
-                        <div className="flex-1 flex flex-col min-h-0">
-                            {/* Selector de Máquina */}
-                            <div className="machine-grid mb-4">
-                                {machines.map(m => (
-                                    <button key={m.id} onClick={() => setSelectedMachine(m)} 
-                                        className={`m-btn ${selectedMachine?.id === m.id ? 'active' : ''}`}>M{m.name}</button>
-                                ))}
-                            </div>
+                        <div className="font-graffiti text-2xl text-blue-500 -rotate-2">Cirineo</div>
+                    </div>
 
-                            {/* Cámara / Preview */}
-                            <div className={`relative bg-black rounded-[32px] overflow-hidden transition-all duration-300 ${pending ? 'h-32 opacity-50' : 'flex-1'}`}>
+                    <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
+                        {/* Selector de Máquina Estética Urban */}
+                        <div className="grid grid-cols-4 gap-2">
+                            {[1,2,3,4,5,6,7,8,9,10,11,12].map(m => (
+                                <button key={m} onClick={() => setSelectedMachine(m)}
+                                    className={`py-3 font-stencil text-sm rounded-sm border transition-all ${selectedMachine === m ? 'bg-blue-600 border-white text-white shadow-[0_0_15px_rgba(59,130,246,0.6)]' : 'bg-zinc-900 border-zinc-800 text-zinc-500'}`}>
+                                    M{m}
+                                </button>
+                            ))}
+                        </div>
+
+                        {/* Scanner Area */}
+                        {!scannerActive ? (
+                            <button onClick={initScanner} className="flex-1 min-h-[300px] border-2 border-dashed border-zinc-700 rounded-sm flex flex-col items-center justify-center gap-4 bg-zinc-900/30 group">
+                                <Icon name="camera" size={48} className="text-zinc-700 group-hover:text-blue-500 transition-colors" />
+                                <span className="font-stencil text-zinc-600 group-hover:text-zinc-400 uppercase tracking-widest text-xs">Iniciar Protocolo de Escaneo</span>
+                            </button>
+                        ) : (
+                            <div className={`relative rounded-sm overflow-hidden border-2 border-zinc-800 transition-all duration-500 ${pending ? 'h-32' : 'h-80'}`}>
                                 <div id="reader"></div>
-                                {!selectedMachine && <div className="absolute inset-0 bg-black/80 flex items-center justify-center p-6 text-center font-bold text-yellow-500">⚠️ SELECCIONA MÁQUINA ANTES DE ESCANEAR</div>}
+                                <div className="scan-overlay"><div className="scan-line"></div></div>
                             </div>
+                        )}
 
-                            {/* Panel de Confirmación (Tu estética original) */}
-                            {pending && (
-                                <div className="mt-4 flex-1 bg-white rounded-t-[32px] p-6 text-slate-900 flex flex-col overflow-hidden animate-slide-up">
-                                    <div className="flex justify-between items-start mb-4 border-b pb-2">
+                        {/* Visualización de Etiquetas (Pending) */}
+                        {pending && (
+                            <div className="flex-1 flex flex-col animate-in fade-in slide-in-from-bottom-4 duration-500">
+                                <div className="tag-card p-4 rounded-sm flex-1 flex flex-col">
+                                    <div className="flex justify-between items-start mb-4">
                                         <div>
-                                            <p className="text-3xl font-black text-blue-900 leading-none">{pending.id}</p>
-                                            <p className="text-sm font-bold text-slate-400 mt-1 uppercase">{pending.data.modelo} | PARTIDA {pending.data.partida}</p>
+                                            <h2 className="font-stencil text-2xl text-white leading-none">{pending.data.modelo || pending.data.codigo}</h2>
+                                            <p className="text-[10px] text-blue-400 font-bold uppercase tracking-widest mt-1">KIT_ID: {pending.id}</p>
                                         </div>
-                                        <div className="bg-blue-100 px-4 py-2 rounded-2xl text-center">
-                                            <p className="text-[10px] font-bold text-blue-400 uppercase leading-none">MÁQUINA</p>
-                                            <p className="text-2xl font-black text-blue-600">{selectedMachine.name}</p>
+                                        <div className="text-right">
+                                            <span className="block font-stencil text-3xl text-blue-500 leading-none">M{selectedMachine}</span>
+                                            <span className="text-[8px] text-zinc-500 uppercase font-black">Asignación</span>
                                         </div>
                                     </div>
 
-                                    <div className="flex-1 overflow-y-auto custom-scroll pr-2">
+                                    <div className="flex-1 overflow-y-auto pr-2 space-y-2 max-h-48 custom-scroll">
                                         {pending.piezas.map((p, i) => (
-                                            <div key={i} className="label-mini flex justify-between items-center shadow-sm">
-                                                <div>
-                                                    <p className="font-black text-lg uppercase leading-none">{p.piezaNombre?.split(' ')[0]}</p>
-                                                    <p className="text-[10px] font-bold text-slate-400 uppercase mt-1">Paquete #{p.paqueteNum}</p>
-                                                </div>
-                                                <div className="text-right">
-                                                    <span className="text-3xl font-black text-blue-600 tracking-tighter">{p.cantidad}</span>
-                                                    <span className="text-[10px] font-black block leading-none">PZAS</span>
-                                                </div>
+                                            <div key={i} className="bg-black/40 p-2 border border-zinc-800 flex justify-between items-center">
+                                                <span className="text-[10px] font-bold uppercase text-zinc-300">{p.piezaNombre?.split(' ')[0]} <span className="text-zinc-600">#{p.paqueteNum}</span></span>
+                                                <span className="font-stencil text-blue-400">{p.cantidad}</span>
                                             </div>
                                         ))}
                                     </div>
 
-                                    <div className="grid grid-cols-2 gap-3 mt-4 pt-4 border-t">
-                                        <button onClick={() => {setPending(null); lastScan.current = null;}} className="bg-slate-100 py-4 rounded-2xl font-black text-slate-400 uppercase text-sm">CANCELAR</button>
-                                        <button onClick={confirmUpload} className="bg-blue-600 py-4 rounded-2xl font-black text-white text-xl uppercase tracking-tight shadow-xl shadow-blue-200">CONFIRMAR</button>
+                                    <div className="mt-4 flex gap-2">
+                                        <button onClick={() => {setPending(null); lastScan.current = null;}} className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 font-black py-3 rounded-sm text-xs uppercase">
+                                            Abortar
+                                        </button>
+                                        <button onClick={confirmRegister} className="flex-[2] bg-gradient-to-r from-blue-600 to-blue-800 hover:from-blue-500 hover:to-blue-700 text-white font-black py-3 rounded-sm border-b-4 border-blue-900 active:border-b-0 active:mt-1 shadow-[0_0_15px_rgba(59,130,246,0.4)] flex items-center justify-center gap-2">
+                                            <Icon name="spray-can" size={18} /> TAGGEAR (CONFIRMAR)
+                                        </button>
                                     </div>
                                 </div>
-                            )}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Footer */}
+                    <div className="p-4 text-center">
+                        <div className="text-[10px] text-zinc-600 font-stencil tracking-widest">
+                            SISTEMA CIRINEO // URBN OPS
                         </div>
-                    )}
+                    </div>
+                    
+                    <style>{`
+                        @keyframes scanLine {
+                            0% { top: 0%; opacity: 0; }
+                            10% { opacity: 1; }
+                            90% { opacity: 1; }
+                            100% { top: 100%; opacity: 0; }
+                        }
+                    `}</style>
                 </div>
             );
         };
